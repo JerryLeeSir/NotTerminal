@@ -10,27 +10,46 @@ struct ContentView: View {
     private static let minimumContentWidth: CGFloat = 400
 
     var body: some View {
-        GeometryReader { geometry in
-            let maximum = max(
-                Self.minimumSidebarWidth,
-                min(
-                    Self.maximumSidebarWidth,
-                    geometry.size.width - Self.minimumContentWidth - SidebarSplitHandle.visibleThickness
-                )
-            )
+        VStack(spacing: 0) {
+            AppTopBar()
 
-            SidebarSplitView(
-                storedWidth: CGFloat(sidebarWidth),
-                minimum: Self.minimumSidebarWidth,
-                maximum: maximum,
-                onCommit: { sidebarWidth = Double($0) }
-            ) {
-                Sidebar()
-            } content: {
-                WorkspacePager()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 8) {
+                GeometryReader { geometry in
+                    let maximum = max(
+                        Self.minimumSidebarWidth,
+                        min(
+                            Self.maximumSidebarWidth,
+                            geometry.size.width
+                                - Self.minimumContentWidth
+                                - SidebarSplitHandle.visibleThickness
+                                - 8
+                        )
+                    )
+
+                    SidebarSplitView(
+                        storedWidth: CGFloat(sidebarWidth),
+                        minimum: Self.minimumSidebarWidth,
+                        maximum: maximum,
+                        onCommit: { sidebarWidth = Double($0) }
+                    ) {
+                        Sidebar()
+                            .chromeSurface()
+                    } content: {
+                        WorkspacePager()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .chromeSurface()
+                    }
+                }
+
+                WorkspaceToolRail()
             }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
+
+            AppStatusBar()
         }
+        .background(AppChromePalette.outer)
+        .ignoresSafeArea()
     }
 }
 
@@ -84,6 +103,7 @@ private struct SidebarSplitView<Leading: View, Trailing: View>: View {
                     onCommit(final)
                 }
             )
+            .padding(.horizontal, 3.5)
 
             trailing
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

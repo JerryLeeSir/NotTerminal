@@ -13,6 +13,7 @@ struct NotTerminalApp: App {
             ContentView()
                 .environmentObject(store)
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 700)
     }
 }
