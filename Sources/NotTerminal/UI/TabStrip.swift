@@ -3,12 +3,13 @@ import SwiftUI
 
 struct TerminalTabsHost: View {
     @ObservedObject var workspace: Workspace
+    let isWorkspaceActive: Bool
     @FocusState private var focusedTabID: UUID?
 
     var body: some View {
         ZStack {
             ForEach(workspace.tabs) { tab in
-                let isSelected = tab.id == workspace.selectedTabID
+                let isSelected = isWorkspaceActive && tab.id == workspace.selectedTabID
 
                 TerminalSurfaceView(context: tab.state)
                     .terminalFocused($focusedTabID, equals: tab.id)
@@ -26,16 +27,24 @@ struct TerminalTabsHost: View {
         }
         .background(Color.black)
         .onAppear {
-            focusedTabID = workspace.selectedTabID
+            updateFocus()
         }
         .onChange(of: workspace.selectedTabID) { selectedTabID in
-            focusedTabID = selectedTabID
+            focusedTabID = isWorkspaceActive ? selectedTabID : nil
         }
+        .onChange(of: isWorkspaceActive) { _ in
+            updateFocus()
+        }
+    }
+
+    private func updateFocus() {
+        focusedTabID = isWorkspaceActive ? workspace.selectedTabID : nil
     }
 }
 
 struct WorkspaceToolbar: View {
     @EnvironmentObject private var store: TerminalStore
+    @ObservedObject var workspace: Workspace
 
     var body: some View {
         HStack(spacing: 10) {
@@ -43,16 +52,14 @@ struct WorkspaceToolbar: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
 
-            if let workspace = store.selectedWorkspace {
-                Text(workspace.name)
-                    .font(.system(size: 12, weight: .semibold))
+            Text(workspace.name)
+                .font(.system(size: 12, weight: .semibold))
 
-                Text(workspace.directory.path)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+            Text(workspace.directory.path)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Spacer(minLength: 8)
 

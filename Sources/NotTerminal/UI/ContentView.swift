@@ -8,27 +8,63 @@ struct ContentView: View {
             Sidebar()
                 .frame(minWidth: 200, idealWidth: 240, maxWidth: 360)
 
-            Group {
-                if let workspace = store.selectedWorkspace {
-                    WorkspaceDetail(workspace: workspace)
-                } else {
-                    EmptyStateView()
-                }
-            }
+            WorkspacePager()
             .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct WorkspacePager: View {
+    @EnvironmentObject private var store: TerminalStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if store.workspaces.isEmpty {
+            EmptyStateView()
+        } else {
+            GeometryReader { geometry in
+                let selectedIndex = store.workspaces.firstIndex {
+                    $0.id == store.selectedWorkspaceID
+                } ?? 0
+
+                ZStack {
+                    ForEach(Array(store.workspaces.enumerated()), id: \.element.id) { index, workspace in
+                        let isActive = index == selectedIndex
+
+                        WorkspaceDetail(
+                            workspace: workspace,
+                            isActiveWorkspace: isActive
+                        )
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .offset(x: CGFloat(index - selectedIndex) * geometry.size.width)
+                        .allowsHitTesting(isActive)
+                        .accessibilityHidden(!isActive)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.28),
+                    value: store.selectedWorkspaceID
+                )
+            }
         }
     }
 }
 
 private struct WorkspaceDetail: View {
     @ObservedObject var workspace: Workspace
+    let isActiveWorkspace: Bool
 
     var body: some View {
         if workspace.selectedTab != nil {
             VStack(spacing: 0) {
-                WorkspaceToolbar()
+                WorkspaceToolbar(workspace: workspace)
                 Divider()
-                TerminalTabsHost(workspace: workspace)
+                TerminalTabsHost(
+                    workspace: workspace,
+                    isWorkspaceActive: isActiveWorkspace
+                )
             }
         } else {
             EmptyStateView()
