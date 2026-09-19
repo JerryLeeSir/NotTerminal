@@ -47,10 +47,11 @@ struct Sidebar: View {
             }
 
             LazyVGrid(columns: workspaceColumns, alignment: .center, spacing: 6) {
-                ForEach(store.workspaces) { workspace in
+                ForEach(Array(store.workspaces.enumerated()), id: \.element.id) { index, workspace in
                     WorkspaceTile(
                         workspace: workspace,
-                        isSelected: workspace.id == store.selectedWorkspaceID
+                        isSelected: workspace.id == store.selectedWorkspaceID,
+                        palette: WorkspaceAccentPalette.at(index)
                     )
                 }
             }
@@ -134,26 +135,36 @@ private struct WorkspaceTile: View {
     @ObservedObject var workspace: Workspace
     @State private var hovered = false
     let isSelected: Bool
+    let palette: WorkspaceAccentPalette
 
     var body: some View {
         Button {
             store.select(workspace)
         } label: {
             RoundedRectangle(cornerRadius: 10)
-                .fill(fillColor)
+                .fill(palette.gradient)
                 .aspectRatio(64 / 38, contentMode: .fit)
                 .overlay {
-                    ProjectMonogramBadge(monogram: workspace.monogram, size: 25)
+                    Text(workspace.monogram)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.18), radius: 1, y: 1)
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(
                             isSelected
-                                ? Color.accentColor.opacity(0.65)
-                                : Color.primary.opacity(0.08),
-                            lineWidth: 1
+                                ? Color.white.opacity(0.72)
+                                : Color.black.opacity(0.16),
+                            lineWidth: isSelected ? 1.4 : 0.7
                         )
                 }
+                .opacity(isSelected || hovered ? 1 : 0.88)
+                .shadow(
+                    color: isSelected ? palette.trailing.opacity(0.28) : .clear,
+                    radius: 4,
+                    y: 1
+                )
             }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -161,15 +172,6 @@ private struct WorkspaceTile: View {
         .accessibilityLabel("工作空间：\(workspace.name)")
     }
 
-    private var fillColor: Color {
-        if isSelected {
-            return Color.accentColor.opacity(0.16)
-        }
-        if hovered {
-            return Color.primary.opacity(0.06)
-        }
-        return Color(nsColor: .windowBackgroundColor)
-    }
 }
 
 private struct WorkspaceTabs: View {

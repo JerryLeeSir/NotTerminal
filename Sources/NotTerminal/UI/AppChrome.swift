@@ -34,7 +34,11 @@ struct AppTopBar: View {
             MacTrafficLightControls()
 
             if let workspace = store.selectedWorkspace {
-                WorkspaceTopBarInfo(workspace: workspace)
+                let index = store.workspaces.firstIndex { $0.id == workspace.id } ?? 0
+                WorkspaceTopBarInfo(
+                    workspace: workspace,
+                    palette: WorkspaceAccentPalette.at(index)
+                )
                 ProjectBranchButton(project: workspace.project)
             }
 
@@ -72,10 +76,11 @@ struct AppTopBar: View {
 
 private struct WorkspaceTopBarInfo: View {
     @ObservedObject var workspace: Workspace
+    let palette: WorkspaceAccentPalette
 
     var body: some View {
         HStack(spacing: 8) {
-            ProjectMonogramBadge(monogram: workspace.monogram)
+            ProjectMonogramBadge(monogram: workspace.monogram, palette: palette)
 
             Text(workspace.name)
                 .font(.system(size: 12, weight: .semibold))
