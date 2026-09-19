@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectSidebar: View {
@@ -375,8 +376,8 @@ struct ProjectBranchButton: View {
 
     var body: some View {
         Button {
-            isPresented = true
-            git.refreshBranches()
+            isPresented.toggle()
+            if isPresented { git.refreshBranches() }
         } label: {
             HStack(spacing: 4) {
                 GitBranchGlyph()
@@ -401,12 +402,156 @@ struct ProjectBranchButton: View {
         .onHover { hovered = $0 }
         .onAppear { git.refresh() }
         .help("切换 Git 分支")
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            ProjectBranchPopover(git: git) {
-                isPresented = false
-            }
+        .background(
+            BranchDropdownPresenter(
+                isPresented: $isPresented,
+                git: git,
+                onDismiss: { isPresented = false }
+            )
+        )
+    }
+}
+
+private struct BranchDropdownPresenter: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let git: GitRepository
+    let onDismiss: () -> Void
+
+    func makeNSView(context: Context) -> BranchDropdownView {
+        let view = BranchDropdownView()
+        view.onDismiss = onDismiss
+        return view
+    }
+
+    func updateNSView(_ view: BranchDropdownView, context: Context) {
+        view.onDismiss = onDismiss
+        view.updatePresentation(isPresented: isPresented, git: git)
+    }
+}
+
+private final class BranchDropdownView: NSView {
+    var onDismiss: (() -> Void)?
+
+    private var panel: BranchDropdownPanel?
+    private var mouseMonitor: Any?
+
+    deinit {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        panel?.orderOut(nil)
+    }
+
+    func updatePresentation(isPresented: Bool, git: GitRepository) {
+        if isPresented {
+            present(git: git)
+        } else {
+            dismiss()
         }
     }
+
+    // MARK: - Presentation
+
+    private func present(git: GitRepository) {
+        guard panel == nil, let window else { return }
+
+        let hosting = makeHosting(git: git)
+        let size = hosting.fittingSize
+        hosting.frame = NSRect(origin: .zero, size: size)
+
+        let panel = BranchDropdownPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = hosting
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.isExcludedFromWindowsMenu = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.level = .popUpMenu
+        self.panel = panel
+
+        let buttonRect = convert(bounds, to: nil)
+        let screenOrigin = window.convertPoint(toScreen: buttonRect.origin)
+
+        var originX = screenOrigin.x
+        var originY = screenOrigin.y - size.height
+        if let screen = window.screen ?? NSScreen.main {
+            let visibleFrame = screen.visibleFrame
+            originY = max(originY, visibleFrame.minY)
+            originX = max(originX, visibleFrame.minX)
+            if originX + size.width > visibleFrame.maxX {
+                originX = max(visibleFrame.maxX - size.width, visibleFrame.minX)
+            }
+        }
+
+        panel.setFrame(
+            NSRect(x: originX, y: originY, width: size.width, height: size.height),
+            display: true
+        )
+        panel.makeKeyAndOrderFront(nil)
+
+        installMonitorIfNeeded()
+    }
+
+    private func makeHosting(git: GitRepository) -> NSHostingView<AnyView> {
+        NSHostingView(
+            rootView: AnyView(
+                ProjectBranchPopover(git: git) { [weak self] in
+                    guard let self else { return }
+                    self.dismiss()
+                    self.onDismiss?()
+                }
+                .frame(width: 260)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 6)
+            )
+        )
+    }
+
+    private func dismiss() {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
+    // MARK: - Outside click
+
+    private func installMonitorIfNeeded() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            self?.handleMouseEvent(event)
+        }
+    }
+
+    private func handleMouseEvent(_ event: NSEvent) -> NSEvent? {
+        guard let panel, panel.isVisible else { return event }
+        if event.window === panel { return event }
+
+        if event.window === window {
+            let point = convert(event.locationInWindow, from: nil)
+            if bounds.contains(point) { return event }
+        }
+
+        dismiss()
+        onDismiss?()
+        return event
+    }
+}
+
+private final class BranchDropdownPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 
 private struct GitBranchGlyph: View {

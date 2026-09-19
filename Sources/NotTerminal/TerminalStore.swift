@@ -57,13 +57,13 @@ final class TerminalStore: ObservableObject {
 
         let workspace = Workspace(directory: standardizedDirectory)
         workspaces.append(workspace)
-        selectedWorkspaceID = workspace.id
-        addTab(to: workspace)
+        select(workspace)
         saveWorkspaces()
     }
 
     func select(_ workspace: Workspace) {
         selectedWorkspaceID = workspace.id
+        workspace.project.git.refresh()
 
         if workspace.tabs.isEmpty {
             addTab(to: workspace)
@@ -131,9 +131,13 @@ final class TerminalStore: ObservableObject {
         workspaces.remove(at: index)
 
         if wasSelected {
-            selectedWorkspaceID = workspaces.indices.contains(index)
-                ? workspaces[index].id
-                : workspaces.last?.id
+            if workspaces.indices.contains(index) {
+                select(workspaces[index])
+            } else if let last = workspaces.last {
+                select(last)
+            } else {
+                selectedWorkspaceID = nil
+            }
         }
 
         saveWorkspaces()
