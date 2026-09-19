@@ -9,22 +9,29 @@ struct ContentView: View {
                 .frame(minWidth: 200, idealWidth: 240, maxWidth: 360)
 
             Group {
-                if let tab = store.selectedTab {
-                    VStack(spacing: 0) {
-                        TabStrip()
-                        Divider()
-                        TerminalHostView(tab: tab)
-                    }
+                if let workspace = store.selectedWorkspace {
+                    WorkspaceDetail(workspace: workspace)
                 } else {
                     EmptyStateView()
                 }
             }
             .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear {
-            if store.tabs.isEmpty {
-                store.addTab()
+    }
+}
+
+private struct WorkspaceDetail: View {
+    @ObservedObject var workspace: Workspace
+
+    var body: some View {
+        if workspace.selectedTab != nil {
+            VStack(spacing: 0) {
+                WorkspaceToolbar()
+                Divider()
+                TerminalTabsHost(workspace: workspace)
             }
+        } else {
+            EmptyStateView()
         }
     }
 }
@@ -34,13 +41,26 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "terminal")
+            Image(systemName: store.selectedWorkspace == nil ? "square.grid.2x2" : "terminal")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("没有打开的终端")
+            Text(store.selectedWorkspace == nil ? "还没有工作空间" : "没有打开的终端")
                 .font(.headline)
-            Button("新建终端") {
-                store.addTab()
+
+            Text(
+                store.selectedWorkspace == nil
+                    ? "选择一个目录来创建工作空间。"
+                    : "新终端会从当前工作空间目录启动。"
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+
+            Button(store.selectedWorkspace == nil ? "选择目录" : "新建终端") {
+                if store.selectedWorkspace == nil {
+                    store.chooseWorkspaceDirectory()
+                } else {
+                    store.addTab()
+                }
             }
             .buttonStyle(.borderedProminent)
         }

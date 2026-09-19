@@ -1,94 +1,72 @@
 import GhosttyTerminal
 import SwiftUI
 
-struct TerminalHostView: View {
-    @ObservedObject var tab: TerminalTab
-    @FocusState private var terminalFocused: Bool
+struct TerminalTabsHost: View {
+    @ObservedObject var workspace: Workspace
+    @FocusState private var focusedTabID: UUID?
 
     var body: some View {
-        TerminalSurfaceView(context: tab.state)
-            .terminalFocused($terminalFocused)
-            .onAppear {
-                terminalFocused = true
+        ZStack {
+            ForEach(workspace.tabs) { tab in
+                let isSelected = tab.id == workspace.selectedTabID
+
+                TerminalSurfaceView(context: tab.state)
+                    .terminalFocused($focusedTabID, equals: tab.id)
+                    .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(isSelected)
+                    .accessibilityHidden(!isSelected)
+                    .zIndex(isSelected ? 1 : 0)
+                    .onAppear {
+                        tab.state.isSurfaceVisible = isSelected
+                    }
+                    .onChange(of: isSelected) { visible in
+                        tab.state.isSurfaceVisible = visible
+                    }
             }
-            .background(Color.black)
-            .id("surface-\(tab.id)")
+        }
+        .background(Color.black)
+        .onAppear {
+            focusedTabID = workspace.selectedTabID
+        }
+        .onChange(of: workspace.selectedTabID) { selectedTabID in
+            focusedTabID = selectedTabID
+        }
     }
 }
 
-struct TabStrip: View {
+struct WorkspaceToolbar: View {
     @EnvironmentObject private var store: TerminalStore
-    @State private var hoveredTabID: UUID?
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(store.tabs) { tab in
-                TabStripItem(
-                    tab: tab,
-                    isSelected: tab.id == store.selectedTabID,
-                    isHovered: hoveredTabID == tab.id
-                )
-                .onHover { hovering in
-                    hoveredTabID = hovering ? tab.id : nil
-                }
-                .onTapGesture {
-                    store.select(tab)
-                }
+        HStack(spacing: 10) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            if let workspace = store.selectedWorkspace {
+                Text(workspace.name)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(workspace.directory.path)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
+
+            Spacer(minLength: 8)
 
             Button {
                 store.addTab()
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+                Label("新建终端", systemImage: "plus")
+                    .font(.system(size: 11, weight: .medium))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("新建终端")
-
-            Spacer(minLength: 0)
+            .buttonStyle(.borderless)
+            .help("在当前工作空间中新建终端")
         }
-        .padding(.leading, 10)
-        .padding(.vertical, 6)
-        .background(.bar)
-    }
-}
-
-struct TabStripItem: View {
-    @EnvironmentObject private var store: TerminalStore
-    @ObservedObject var tab: TerminalTab
-    let isSelected: Bool
-    let isHovered: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(tab.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .font(.system(size: 12))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-
-            Button {
-                store.close(tab: tab)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .opacity(isHovered || isSelected ? 1 : 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: 180)
-        .background(
-            isSelected ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
-            in: RoundedRectangle(cornerRadius: 6)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }

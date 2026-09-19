@@ -1,57 +1,141 @@
+import AppKit
 import Foundation
 import GhosttyTerminal
 
 @MainActor
 final class TerminalStore: ObservableObject {
-    private static let projectsRoot =
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/Project")
+    private static let workspaceDirectoriesKey = "workspaceDirectories"
 
-    @Published private(set) var tabs: [TerminalTab] = []
-    @Published var selectedTabID: UUID?
-    @Published private(set) var projects: [Project] = []
+    @Published private(set) var workspaces: [Workspace] = []
+    @Published var selectedWorkspaceID: UUID?
 
     let controller: TerminalController
 
     init() {
         self.controller = TerminalController.shared
-        self.refreshProjects()
+        self.restoreWorkspaces()
+
+        if let firstWorkspace = workspaces.first {
+            selectedWorkspaceID = firstWorkspace.id
+            addTab(to: firstWorkspace)
+        }
+    }
+
+    var selectedWorkspace: Workspace? {
+        workspaces.first { $0.id == selectedWorkspaceID }
     }
 
     var selectedTab: TerminalTab? {
-        tabs.first { $0.id == selectedTabID }
+        selectedWorkspace?.selectedTab
     }
 
-    func refreshProjects() {
-        self.projects = Project.discover(from: Self.projectsRoot)
+    func chooseWorkspaceDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择工作空间目录"
+        panel.message = "该工作空间中的所有新终端都会从此目录启动。"
+        panel.prompt = "创建工作空间"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = selectedWorkspace?.directory
+            ?? FileManager.default.homeDirectoryForCurrentUser
+
+        guard panel.runModal() == .OK, let directory = panel.url else { return }
+        createWorkspace(directory: directory)
+    }
+
+    func createWorkspace(directory: URL) {
+        let standardizedDirectory = directory.standardizedFileURL
+
+        if let existingWorkspace = workspaces.first(where: {
+            $0.directory == standardizedDirectory
+        }) {
+            select(existingWorkspace)
+            return
+        }
+
+        let workspace = Workspace(directory: standardizedDirectory)
+        workspaces.append(workspace)
+        selectedWorkspaceID = workspace.id
+        addTab(to: workspace)
+        saveWorkspaces()
+    }
+
+    func select(_ workspace: Workspace) {
+        selectedWorkspaceID = workspace.id
+
+        if workspace.tabs.isEmpty {
+            addTab(to: workspace)
+        }
     }
 
     @discardableResult
-    func addTab(workingDirectory: String? = nil) -> TerminalTab {
-        let tab = TerminalTab(
-            controller: controller,
-            workingDirectory: workingDirectory
-        ) { [weak self] tab in
-            self?.close(tab: tab)
-        }
-        tabs.append(tab)
-        selectedTabID = tab.id
-        return tab
+    func addTab() -> TerminalTab? {
+        guard let workspace = selectedWorkspace else { return nil }
+        return addTab(to: workspace)
     }
 
     func close(tab: TerminalTab) {
-        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
-        tabs.remove(at: index)
+        guard let workspace = workspaces.first(where: { workspace in
+            workspace.tabs.contains { $0.id == tab.id }
+        }), let index = workspace.tabs.firstIndex(where: { $0.id == tab.id }) else {
+            return
+        }
 
-        if selectedTabID == tab.id {
-            if index < tabs.count {
-                selectedTabID = tabs[index].id
+        workspace.tabs.remove(at: index)
+
+        if workspace.selectedTabID == tab.id {
+            if index < workspace.tabs.count {
+                workspace.selectedTabID = workspace.tabs[index].id
             } else {
-                selectedTabID = tabs.last?.id
+                workspace.selectedTabID = workspace.tabs.last?.id
             }
         }
     }
 
     func select(_ tab: TerminalTab) {
-        selectedTabID = tab.id
+        guard let workspace = selectedWorkspace,
+              workspace.tabs.contains(where: { $0.id == tab.id }) else {
+            return
+        }
+
+        workspace.selectedTabID = tab.id
+    }
+
+    @discardableResult
+    private func addTab(to workspace: Workspace) -> TerminalTab {
+        let tab = TerminalTab(
+            controller: controller,
+            workingDirectory: workspace.directory.path
+        ) { [weak self] tab in
+            self?.close(tab: tab)
+        }
+
+        workspace.tabs.append(tab)
+        workspace.selectedTabID = tab.id
+        return tab
+    }
+
+    private func restoreWorkspaces() {
+        let paths = UserDefaults.standard.stringArray(
+            forKey: Self.workspaceDirectoriesKey
+        ) ?? []
+
+        workspaces = paths.compactMap { path in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
+            return Workspace(directory: URL(fileURLWithPath: path))
+        }
+    }
+
+    private func saveWorkspaces() {
+        UserDefaults.standard.set(
+            workspaces.map { $0.directory.path },
+            forKey: Self.workspaceDirectoriesKey
+        )
     }
 }
