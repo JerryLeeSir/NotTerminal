@@ -6,7 +6,7 @@ struct ContentView: View {
     var body: some View {
         HSplitView {
             Sidebar()
-                .frame(minWidth: 200, idealWidth: 240, maxWidth: 360)
+                .frame(minWidth: 180, idealWidth: 210, maxWidth: 260)
 
             WorkspacePager()
             .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)

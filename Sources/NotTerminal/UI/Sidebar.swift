@@ -4,7 +4,7 @@ struct Sidebar: View {
     @EnvironmentObject private var store: TerminalStore
 
     private let workspaceColumns = [
-        GridItem(.adaptive(minimum: 58, maximum: 72), spacing: 8)
+        GridItem(.adaptive(minimum: 48, maximum: 56), spacing: 6)
     ]
 
     var body: some View {
@@ -17,7 +17,7 @@ struct Sidebar: View {
     }
 
     private var workspaceSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("工作空间")
                     .font(.system(size: 11, weight: .semibold))
@@ -37,7 +37,7 @@ struct Sidebar: View {
                 .help("选择目录并新建工作空间")
             }
 
-            LazyVGrid(columns: workspaceColumns, alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: workspaceColumns, alignment: .leading, spacing: 6) {
                 ForEach(store.workspaces) { workspace in
                     WorkspaceTile(
                         workspace: workspace,
@@ -48,7 +48,7 @@ struct Sidebar: View {
                 AddWorkspaceTile()
             }
         }
-        .padding(12)
+        .padding(10)
     }
 
 }
@@ -124,24 +124,25 @@ private struct WorkspaceTile: View {
         Button {
             store.select(workspace)
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
 
                 Text(workspace.name)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(.primary)
             }
-            .frame(maxWidth: .infinity, minHeight: 58)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
             .background(
                 isSelected ? Color.accentColor.opacity(0.16) : Color(nsColor: .windowBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 9)
+                in: RoundedRectangle(cornerRadius: 8)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 9)
+                RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(
                         isSelected ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.08),
                         lineWidth: 1
@@ -161,20 +162,21 @@ private struct AddWorkspaceTile: View {
         Button {
             store.chooseWorkspaceDirectory()
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
                 Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                 Text("新建")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
             }
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 58)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
             .background(
                 Color(nsColor: .windowBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 9)
+                in: RoundedRectangle(cornerRadius: 8)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 9)
+                RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
             }
         }
