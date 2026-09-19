@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct Sidebar: View {
@@ -211,6 +212,11 @@ private struct WorkspaceTabs: View {
                 headerHovered ? Color.primary.opacity(0.04) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 6)
             )
+            .background(
+                HorizontalScrollCatcher { direction in
+                    switchWorkspace(direction)
+                }
+            )
             .padding(.horizontal, 4)
             .onHover { headerHovered = $0 }
 
@@ -227,6 +233,19 @@ private struct WorkspaceTabs: View {
                 .padding(.bottom, 8)
             }
         }
+    }
+
+    private func switchWorkspace(_ direction: Int) {
+        guard let currentIndex = store.workspaces.firstIndex(where: {
+            $0.id == workspace.id
+        }) else {
+            return
+        }
+
+        let targetIndex = currentIndex + direction
+        guard store.workspaces.indices.contains(targetIndex) else { return }
+
+        store.select(store.workspaces[targetIndex])
     }
 }
 
@@ -274,6 +293,98 @@ private struct TerminalSidebarRow: View {
         .onHover { hovered = $0 }
         .onTapGesture {
             store.select(tab)
+        }
+    }
+}
+
+private struct HorizontalScrollCatcher: NSViewRepresentable {
+    let onSwipe: (Int) -> Void
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.onSwipe = onSwipe
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView, context: Context) {
+        nsView.onSwipe = onSwipe
+    }
+
+    final class CatcherView: NSView {
+        var onSwipe: ((Int) -> Void)?
+
+        private var monitor: Any?
+        private var accumulated: CGFloat = 0
+        private var triggered = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if window != nil {
+                installMonitorIfNeeded()
+            } else {
+                removeMonitor()
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        private func installMonitorIfNeeded() {
+            guard monitor == nil else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+                [weak self] event in
+                guard let self else { return event }
+                return self.handle(event) ? nil : event
+            }
+        }
+
+        private func removeMonitor() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) -> Bool {
+            guard event.window === window else { return false }
+
+            let location = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(location) else { return false }
+
+            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
+                return false
+            }
+
+            if event.phase == .began {
+                accumulated = 0
+                triggered = false
+            }
+
+            if event.phase == .began || event.phase == .changed {
+                guard !triggered else { return true }
+                accumulated += event.scrollingDeltaX
+
+                let threshold: CGFloat = 30
+                if accumulated <= -threshold {
+                    triggered = true
+                    onSwipe?(1)
+                } else if accumulated >= threshold {
+                    triggered = true
+                    onSwipe?(-1)
+                }
+            }
+
+            if event.phase == .ended || event.phase == .cancelled {
+                accumulated = 0
+                triggered = false
+            }
+
+            return true
         }
     }
 }
