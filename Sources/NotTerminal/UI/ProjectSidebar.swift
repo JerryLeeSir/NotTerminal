@@ -367,11 +367,13 @@ private struct GitChangeSection: View {
 
 struct ProjectBranchButton: View {
     @ObservedObject private var git: GitRepository
+    private let openCommit: () -> Void
     @State private var isPresented = false
     @State private var hovered = false
 
-    init(project: ProjectSession) {
+    init(project: ProjectSession, openCommit: @escaping () -> Void = {}) {
         self.git = project.git
+        self.openCommit = openCommit
     }
 
     var body: some View {
@@ -406,31 +408,46 @@ struct ProjectBranchButton: View {
             BranchDropdownPresenter(
                 isPresented: $isPresented,
                 git: git,
+                openCommit: openCommit,
                 onDismiss: { isPresented = false }
             )
         )
+        .sheet(
+            item: Binding(
+                get: { git.comparison },
+                set: { if $0 == nil { git.dismissComparison() } }
+            )
+        ) { comparison in
+            GitComparisonSheet(comparison: comparison) {
+                git.dismissComparison()
+            }
+        }
     }
 }
 
 private struct BranchDropdownPresenter: NSViewRepresentable {
     @Binding var isPresented: Bool
     let git: GitRepository
+    let openCommit: () -> Void
     let onDismiss: () -> Void
 
     func makeNSView(context: Context) -> BranchDropdownView {
         let view = BranchDropdownView()
         view.onDismiss = onDismiss
+        view.openCommit = openCommit
         return view
     }
 
     func updateNSView(_ view: BranchDropdownView, context: Context) {
         view.onDismiss = onDismiss
+        view.openCommit = openCommit
         view.updatePresentation(isPresented: isPresented, git: git)
     }
 }
 
 private final class BranchDropdownView: NSView {
     var onDismiss: (() -> Void)?
+    var openCommit: (() -> Void)?
 
     private var panel: BranchDropdownPanel?
     private var mouseMonitor: Any?
@@ -499,12 +516,16 @@ private final class BranchDropdownView: NSView {
     private func makeHosting(git: GitRepository) -> NSHostingView<AnyView> {
         NSHostingView(
             rootView: AnyView(
-                ProjectBranchPopover(git: git) { [weak self] in
-                    guard let self else { return }
-                    self.dismiss()
-                    self.onDismiss?()
-                }
-                .frame(width: 260)
+                EnhancedBranchPopover(
+                    git: git,
+                    dismiss: { [weak self] in
+                        guard let self else { return }
+                        self.dismiss()
+                        self.onDismiss?()
+                    },
+                    openCommit: { [weak self] in self?.openCommit?() }
+                )
+                .frame(width: 375)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
@@ -537,6 +558,7 @@ private final class BranchDropdownView: NSView {
     private func handleMouseEvent(_ event: NSEvent) -> NSEvent? {
         guard let panel, panel.isVisible else { return event }
         if event.window === panel { return event }
+        if event.window?.sheetParent === panel { return event }
 
         if event.window === window {
             let point = convert(event.locationInWindow, from: nil)
@@ -600,160 +622,5 @@ private struct GitBranchGlyphShape: Shape {
             control2: point(7.2, 5.25)
         )
         return path
-    }
-}
-
-private struct ProjectBranchPopover: View {
-    @ObservedObject private var git: GitRepository
-    let dismiss: () -> Void
-
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
-
-    init(git: GitRepository, dismiss: @escaping () -> Void) {
-        self.git = git
-        self.dismiss = dismiss
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                TextField("搜索分支", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($searchFocused)
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 30)
-
-            Divider()
-
-            content
-        }
-        .frame(width: 260)
-        .onAppear {
-            searchFocused = true
-            git.refresh()
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if !git.isRepository {
-            Text("当前目录不是 Git 仓库")
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .padding(12)
-        } else if filteredLocal.isEmpty && filteredRemote.isEmpty {
-            Text("没有匹配的分支")
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .padding(12)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    if !filteredLocal.isEmpty {
-                        sectionHeader("本地")
-                        ForEach(filteredLocal) { branch in
-                            BranchRow(branch: branch, isCurrent: branch.name == git.branch) {
-                                checkout(branch)
-                            }
-                        }
-                    }
-
-                    if !filteredRemote.isEmpty {
-                        sectionHeader("远程")
-                        ForEach(filteredRemote) { branch in
-                            BranchRow(branch: branch, isCurrent: false) {
-                                checkout(branch)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 5)
-            }
-            .frame(height: 240)
-        }
-    }
-
-    private var filteredLocal: [GitBranch] {
-        git.localBranches.filter(matches)
-    }
-
-    private var filteredRemote: [GitBranch] {
-        git.remoteBranches.filter(matches)
-    }
-
-    private func matches(_ branch: GitBranch) -> Bool {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return true }
-        return branch.name.localizedCaseInsensitiveContains(normalized)
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 7)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func checkout(_ branch: GitBranch) {
-        git.checkout(branch)
-        dismiss()
-    }
-}
-
-private struct BranchRow: View {
-    let branch: GitBranch
-    let isCurrent: Bool
-    let action: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: iconName)
-                    .font(.system(size: 10, weight: isCurrent ? .bold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
-                    .frame(width: 14)
-
-                Text(branch.displayName)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer(minLength: 4)
-
-                if branch.isRemote {
-                    Text(branch.remoteName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 7)
-            .frame(height: 26)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isCurrent
-                    ? Color.accentColor.opacity(0.14)
-                    : (hovered ? Color.primary.opacity(0.06) : Color.clear),
-                in: RoundedRectangle(cornerRadius: 5)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-
-    private var iconName: String {
-        if isCurrent { return "checkmark" }
-        return branch.isRemote ? "cloud" : "arrow.triangle.branch"
     }
 }

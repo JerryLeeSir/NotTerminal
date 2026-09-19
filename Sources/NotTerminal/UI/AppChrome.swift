@@ -39,7 +39,11 @@ struct AppTopBar: View {
                     workspace: workspace,
                     palette: WorkspaceAccentPalette.at(index)
                 )
-                ProjectBranchButton(project: workspace.project)
+                ProjectBranchButton(project: workspace.project) {
+                    workspace.contentMode = .project
+                    workspace.project.sidebarSection = .commit
+                    workspace.project.activate()
+                }
             }
 
             Spacer(minLength: 18)
