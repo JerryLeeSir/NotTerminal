@@ -170,6 +170,13 @@ private struct WorkspaceTile: View {
         .onHover { hovered = $0 }
         .help(workspace.directory.path)
         .accessibilityLabel("工作空间：\(workspace.name)")
+        .contextMenu {
+            Button(role: .destructive) {
+                store.close(workspace: workspace)
+            } label: {
+                Label("关闭", systemImage: "xmark")
+            }
+        }
     }
 
 }

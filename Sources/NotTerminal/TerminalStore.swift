@@ -121,6 +121,24 @@ final class TerminalStore: ObservableObject {
         workspace.contentMode = .terminal
     }
 
+    func close(workspace: Workspace) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspace.id }) else {
+            return
+        }
+
+        let wasSelected = workspace.id == selectedWorkspaceID
+        workspace.tabs.removeAll()
+        workspaces.remove(at: index)
+
+        if wasSelected {
+            selectedWorkspaceID = workspaces.indices.contains(index)
+                ? workspaces[index].id
+                : workspaces.last?.id
+        }
+
+        saveWorkspaces()
+    }
+
     private func restoreWorkspaces() {
         let paths = UserDefaults.standard.stringArray(
             forKey: Self.workspaceDirectoriesKey
