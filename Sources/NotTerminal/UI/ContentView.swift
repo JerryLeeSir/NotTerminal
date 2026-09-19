@@ -44,7 +44,9 @@ private struct WorkspaceDetail: View {
     let isActiveWorkspace: Bool
 
     var body: some View {
-        if workspace.selectedTab != nil {
+        if workspace.contentMode == .project {
+            ProjectEditorView(workspace: workspace)
+        } else if workspace.selectedTab != nil {
             VStack(spacing: 0) {
                 WorkspaceToolbar(workspace: workspace)
                 Divider()

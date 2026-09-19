@@ -89,6 +89,7 @@ final class TerminalStore: ObservableObject {
 
         workspace.tabs.append(tab)
         workspace.selectedTabID = tab.id
+        workspace.contentMode = .terminal
         return tab
     }
 
@@ -117,6 +118,7 @@ final class TerminalStore: ObservableObject {
         }
 
         workspace.selectedTabID = tab.id
+        workspace.contentMode = .terminal
     }
 
     private func restoreWorkspaces() {

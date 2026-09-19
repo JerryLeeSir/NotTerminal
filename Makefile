@@ -10,7 +10,9 @@ build:
 app: build
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS
+	mkdir -p $(APP)/Contents/Resources
 	cp $(BIN) $(APP)/Contents/MacOS/NotTerminal
+	cp -R .build/debug/NotTerminal_NotTerminal.bundle $(APP)/Contents/Resources/
 	@printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \

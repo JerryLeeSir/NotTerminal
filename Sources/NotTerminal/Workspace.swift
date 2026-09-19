@@ -1,6 +1,11 @@
 import Combine
 import Foundation
 
+enum WorkspaceContentMode {
+    case terminal
+    case project
+}
+
 @MainActor
 final class Workspace: ObservableObject, Identifiable {
     let id = UUID()
@@ -8,9 +13,14 @@ final class Workspace: ObservableObject, Identifiable {
 
     @Published var tabs: [TerminalTab] = []
     @Published var selectedTabID: UUID?
+    @Published var contentMode: WorkspaceContentMode = .terminal
+
+    let project: ProjectSession
 
     init(directory: URL) {
-        self.directory = directory.standardizedFileURL
+        let directory = directory.standardizedFileURL
+        self.directory = directory
+        self.project = ProjectSession(directory: directory)
     }
 
     var name: String {

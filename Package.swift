@@ -17,7 +17,8 @@ let package = Package(
             name: "NotTerminal",
             dependencies: [
                 .product(name: "GhosttyTerminal", package: "libghostty-spm")
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "NotTerminalTests",

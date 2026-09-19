@@ -183,9 +183,29 @@ private struct WorkspaceTabs: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(workspace.name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
+                Button {
+                    workspace.contentMode = workspace.contentMode == .project
+                        ? .terminal
+                        : .project
+                    if workspace.contentMode == .project {
+                        workspace.project.activate()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: workspace.contentMode == .project ? "terminal" : "folder")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(workspace.contentMode == .project ? Color.secondary : Color.accentColor)
+                        Text(workspace.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(workspace.contentMode == .project ? "返回终端列表" : "打开项目文件")
 
                 Spacer(minLength: 4)
 
@@ -220,17 +240,21 @@ private struct WorkspaceTabs: View {
             .padding(.horizontal, 4)
             .onHover { headerHovered = $0 }
 
-            ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(workspace.tabs) { tab in
-                        TerminalSidebarRow(
-                            tab: tab,
-                            isSelected: tab.id == workspace.selectedTabID
-                        )
+            if workspace.contentMode == .project {
+                ProjectSidebar(workspace: workspace)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(workspace.tabs) { tab in
+                            TerminalSidebarRow(
+                                tab: tab,
+                                isSelected: tab.id == workspace.selectedTabID
+                            )
+                        }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
             }
         }
     }
@@ -316,6 +340,12 @@ private struct HorizontalScrollCatcher: NSViewRepresentable {
         private var monitor: Any?
         private var accumulated: CGFloat = 0
         private var triggered = false
+
+        // The view only observes trackpad scroll events. Let clicks pass through
+        // to the workspace title and add-tab button rendered above it.
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()

@@ -4,6 +4,10 @@ import SwiftUI
 struct NotTerminalApp: App {
     @StateObject private var store = TerminalStore()
 
+    init() {
+        BundledFontRegistry.registerFonts()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
