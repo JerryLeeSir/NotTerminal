@@ -87,7 +87,7 @@ private struct ProjectFilesView: View {
             .padding(.horizontal, 9)
             .frame(height: 34)
 
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if let children = root.children {
                         ForEach(children) { node in
@@ -102,9 +102,9 @@ private struct ProjectFilesView: View {
                         ProgressView().controlSize(.small).padding(12)
                     }
                 }
-                .frame(minWidth: 172, alignment: .leading)
                 .padding(.bottom, 8)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
