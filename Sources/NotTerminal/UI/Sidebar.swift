@@ -205,6 +205,7 @@ private struct WorkspaceTabs: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .layoutPriority(1)
                 .help(workspace.contentMode == .project ? "返回终端列表" : "打开项目文件")
 
                 Spacer(minLength: 4)
