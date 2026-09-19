@@ -56,6 +56,7 @@ struct Sidebar: View {
 private struct WorkspaceTabsPager: View {
     @EnvironmentObject private var store: TerminalStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pagePosition: CGFloat = 0
 
     var body: some View {
         if store.workspaces.isEmpty {
@@ -82,19 +83,108 @@ private struct WorkspaceTabsPager: View {
 
                         WorkspaceTabs(workspace: workspace)
                             .frame(width: geometry.size.width, height: geometry.size.height)
-                            .offset(x: CGFloat(index - selectedIndex) * geometry.size.width)
+                            .offset(
+                                x: (CGFloat(index) - pagePosition) * geometry.size.width
+                            )
                             .allowsHitTesting(isActive)
                             .accessibilityHidden(!isActive)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
+                .contentShape(Rectangle())
                 .clipped()
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 0.32),
-                    value: store.selectedWorkspaceID
+                .simultaneousGesture(
+                    workspaceSwipeGesture(
+                        width: geometry.size.width,
+                        selectedIndex: selectedIndex
+                    )
                 )
+                .onAppear {
+                    pagePosition = CGFloat(selectedIndex)
+                }
+                .onChange(of: store.selectedWorkspaceID) { _ in
+                    animate(to: selectedIndex)
+                }
             }
         }
+    }
+
+    private func workspaceSwipeGesture(
+        width: CGFloat,
+        selectedIndex: Int
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard !reduceMotion,
+                      width > 0,
+                      abs(value.translation.width) > abs(value.translation.height) else {
+                    return
+                }
+
+                let proposedPosition = CGFloat(selectedIndex) - value.translation.width / width
+                let lastIndex = CGFloat(max(store.workspaces.count - 1, 0))
+                pagePosition = resistedPosition(
+                    proposedPosition,
+                    lowerBound: 0,
+                    upperBound: lastIndex
+                )
+            }
+            .onEnded { value in
+                guard !reduceMotion, width > 0 else {
+                    pagePosition = CGFloat(selectedIndex)
+                    return
+                }
+
+                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+                guard isHorizontal else {
+                    animate(to: selectedIndex)
+                    return
+                }
+
+                let projectedWidth = value.predictedEndTranslation.width
+                let threshold = width * 0.22
+                var targetIndex = selectedIndex
+
+                if projectedWidth < -threshold {
+                    targetIndex = min(selectedIndex + 1, store.workspaces.count - 1)
+                } else if projectedWidth > threshold {
+                    targetIndex = max(selectedIndex - 1, 0)
+                }
+
+                guard targetIndex != selectedIndex else {
+                    animate(to: selectedIndex)
+                    return
+                }
+
+                store.select(store.workspaces[targetIndex])
+            }
+    }
+
+    private func animate(to index: Int) {
+        guard !reduceMotion else {
+            pagePosition = CGFloat(index)
+            return
+        }
+
+        withAnimation(.interactiveSpring(response: 0.38, dampingFraction: 0.88)) {
+            pagePosition = CGFloat(index)
+        }
+    }
+
+    private func resistedPosition(
+        _ position: CGFloat,
+        lowerBound: CGFloat,
+        upperBound: CGFloat
+    ) -> CGFloat {
+        if position < lowerBound {
+            return lowerBound + (position - lowerBound) * 0.18
+        }
+
+        if position > upperBound {
+            return upperBound + (position - upperBound) * 0.18
+        }
+
+        return position
     }
 }
 
