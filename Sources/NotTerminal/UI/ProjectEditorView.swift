@@ -342,6 +342,7 @@ private final class LineNumberRulerView: NSRulerView {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
         ruleThickness = 54
+        scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(redraw),
@@ -364,6 +365,7 @@ private final class LineNumberRulerView: NSRulerView {
         palette.background.setFill()
         bounds.fill()
 
+        let origin = convert(NSZeroPoint, from: textView)
         let visibleRect = scrollView.contentView.bounds
         let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
         let source = textView.string as NSString
@@ -388,7 +390,10 @@ private final class LineNumberRulerView: NSRulerView {
             let number = "\(lineNumber)" as NSString
             let size = number.size(withAttributes: attributes)
             number.draw(
-                at: NSPoint(x: ruleThickness - size.width - 8, y: lineRect.minY + textView.textContainerInset.height + 1),
+                at: NSPoint(
+                    x: ruleThickness - size.width - 8,
+                    y: origin.y + textView.textContainerOrigin.y + lineRect.minY + 1
+                ),
                 withAttributes: attributes
             )
             glyphIndex = NSMaxRange(lineGlyphRange)
