@@ -95,8 +95,15 @@ private struct WorkspaceTabsPager: View {
                 .onAppear {
                     pagePosition = CGFloat(selectedIndex)
                 }
-                .onChange(of: store.selectedWorkspaceID) { _ in
-                    animate(to: selectedIndex)
+                .onChange(of: store.selectedWorkspaceID) { workspaceID in
+                    guard let workspaceID,
+                          let newIndex = store.workspaces.firstIndex(where: {
+                              $0.id == workspaceID
+                          }) else {
+                        return
+                    }
+
+                    animate(to: newIndex)
                 }
             }
         }
