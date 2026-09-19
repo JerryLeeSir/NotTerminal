@@ -32,21 +32,21 @@ struct EnhancedBranchPopover: View {
             BranchOperationDialog(dialog: dialog, git: git)
         }
         .alert(
-            "删除分支？",
+            "Delete branch?",
             isPresented: Binding(
                 get: { branchPendingDeletion != nil },
                 set: { if !$0 { branchPendingDeletion = nil } }
             ),
             presenting: branchPendingDeletion
         ) { reference in
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
                 git.deleteBranch(reference) { succeeded in
                     if succeeded { dismiss() }
                 }
             }
         } message: { reference in
-            Text("删除本地分支“\(reference.shortName)”？未合并的分支会被 Git 拒绝删除。")
+            Text("Delete the local branch “\(reference.shortName)”? Git will refuse if it contains unmerged work.")
         }
     }
 
@@ -55,7 +55,7 @@ struct EnhancedBranchPopover: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            TextField("搜索分支和操作", text: $query)
+            TextField("Search branches and actions", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($searchFocused)
@@ -77,39 +77,39 @@ struct EnhancedBranchPopover: View {
 
     private var actionList: some View {
         VStack(spacing: 1) {
-            if actionMatches("拉取远程", aliases: ["fetch"]) {
-                actionRow("拉取远程", icon: "arrow.down.to.line") {
+            if actionMatches("Fetch", aliases: ["fetch"]) {
+                actionRow("Fetch", icon: "arrow.down.to.line") {
                     git.fetch { succeeded in if succeeded { dismiss() } }
                 }
             }
-            if actionMatches("更新项目", aliases: ["update", "pull"]) {
-                actionRow("更新项目…", icon: "arrow.down.left", detail: trackingDetail) {
+            if actionMatches("Update Project", aliases: ["update", "pull"]) {
+                actionRow("Update Project…", icon: "arrow.down.left", detail: trackingDetail) {
                     git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
                 }
                 .disabled(git.currentReference == nil || git.isBusy)
             }
-            if actionMatches("提交", aliases: ["commit"]) {
-                actionRow("提交…", icon: "checkmark.circle", shortcut: "⌘K") {
+            if actionMatches("Commit", aliases: ["commit"]) {
+                actionRow("Commit…", icon: "checkmark.circle", shortcut: "⌘K") {
                     dismiss()
                     openCommit()
                 }
             }
-            if actionMatches("推送", aliases: ["push"]) {
-                actionRow("推送…", icon: "arrow.up.right", shortcut: "⇧⌘K") {
+            if actionMatches("Push", aliases: ["push"]) {
+                actionRow("Push…", icon: "arrow.up.right", shortcut: "⇧⌘K") {
                     guard let current = git.currentReference else { return }
                     git.push(current) { succeeded in if succeeded { dismiss() } }
                 }
                 .disabled(git.currentReference == nil || git.isBusy)
             }
-            if actionMatches("新建分支", aliases: ["new branch"]) {
-                actionRow("新建分支…", icon: "plus", shortcut: "⌥⌘N") {
+            if actionMatches("New Branch", aliases: ["new branch"]) {
+                actionRow("New Branch…", icon: "plus", shortcut: "⌥⌘N") {
                     guard let current = git.currentReference else { return }
                     dialog = .newBranch(current)
                 }
                 .disabled(git.currentReference == nil || git.isBusy)
             }
-            if actionMatches("检出 Tag 或版本", aliases: ["checkout", "revision", "tag"]) {
-                actionRow("检出 Tag 或版本…", icon: "number") {
+            if actionMatches("Checkout Tag or Revision", aliases: ["checkout", "revision", "tag"]) {
+                actionRow("Checkout Tag or Revision…", icon: "number") {
                     dialog = .checkoutRevision
                 }
                 .disabled(git.isBusy)
@@ -156,14 +156,14 @@ struct EnhancedBranchPopover: View {
     @ViewBuilder
     private var referenceList: some View {
         if !git.isRepository {
-            emptyState("当前目录不是 Git 仓库")
+            emptyState("The current directory is not a Git repository.")
         } else if filteredReferences.isEmpty {
-            emptyState("没有匹配的分支或 Tag")
+            emptyState("No matching branches or tags.")
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if normalizedQuery.isEmpty, !git.recentReferences.isEmpty {
-                        sectionHeader("最近", icon: "clock")
+                        sectionHeader("Recent", icon: "clock")
                         ForEach(git.recentReferences) { referenceRow($0, indented: false) }
                     }
 
@@ -175,7 +175,7 @@ struct EnhancedBranchPopover: View {
                             ForEach(git.tagReferences) { referenceRow($0, indented: true) }
                         }
                     } else {
-                        sectionHeader("搜索结果", icon: "magnifyingglass")
+                        sectionHeader("Search Results", icon: "magnifyingglass")
                         ForEach(filteredReferences) { referenceRow($0, indented: false) }
                     }
                 }
@@ -190,7 +190,7 @@ struct EnhancedBranchPopover: View {
     private var localReferenceSections: some View {
         let groups = groupedLocalReferences
         if !groups.isEmpty {
-            sectionHeader("本地", icon: "point.3.connected.trianglepath.dotted")
+            sectionHeader("Local", icon: "point.3.connected.trianglepath.dotted")
             ForEach(groups) { group in
                 if group.title.isEmpty {
                     ForEach(group.references) { referenceRow($0, indented: true) }
@@ -205,7 +205,7 @@ struct EnhancedBranchPopover: View {
     private var remoteReferenceSections: some View {
         let groups = groupedRemoteReferences
         if !groups.isEmpty {
-            sectionHeader("远程", icon: "cloud")
+            sectionHeader("Remote", icon: "cloud")
             ForEach(groups) { group in groupRow(group, icon: "externaldrive") }
         }
     }
@@ -247,16 +247,16 @@ struct EnhancedBranchPopover: View {
 
     private func referenceRow(_ reference: GitReference, indented: Bool) -> some View {
         Menu {
-            Button("从“\(reference.shortName)”新建分支…") {
+            Button("New Branch from '\(reference.shortName)'…") {
                 dialog = .newBranch(reference)
             }
-            Button("与工作区比较") {
+            Button("Show Diff with Working Tree") {
                 git.compareWithWorkingTree(reference) { succeeded in
                     if succeeded { dismiss() }
                 }
             }
             if let current = git.currentReference, current.id != reference.id {
-                Button("与当前分支比较") {
+                Button("Compare with Current Branch") {
                     git.compare(reference, with: current) { succeeded in
                         if succeeded { dismiss() }
                     }
@@ -264,21 +264,21 @@ struct EnhancedBranchPopover: View {
             }
             if !reference.isCurrent {
                 Divider()
-                Button("检出") {
+                Button("Checkout") {
                     git.checkout(reference) { succeeded in if succeeded { dismiss() } }
                 }
             }
             if reference.kind == .local {
                 Divider()
-                Button("更新") {
+                Button("Update") {
                     git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
                 }
                 .disabled(!reference.isCurrent)
-                Button("推送…") {
+                Button("Push…") {
                     git.push(reference) { succeeded in if succeeded { dismiss() } }
                 }
                 if !reference.isCurrent {
-                    Button("删除分支", role: .destructive) {
+                    Button("Delete Branch", role: .destructive) {
                         branchPendingDeletion = reference
                     }
                 }
@@ -381,7 +381,7 @@ struct EnhancedBranchPopover: View {
     }
 
     private var groupedRemoteReferences: [ReferenceGroup] {
-        let grouped = Dictionary(grouping: git.remoteReferences) { $0.remoteName ?? "远程" }
+        let grouped = Dictionary(grouping: git.remoteReferences) { $0.remoteName ?? "Remote" }
         return grouped.map { ReferenceGroup(id: "remote:\($0.key)", title: $0.key, references: $0.value) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
@@ -460,13 +460,13 @@ private struct BranchOperationDialog: View {
                 .focused($focused)
                 .onSubmit(submit)
             if case .newBranch = dialog {
-                Toggle("创建后立即切换", isOn: $checkoutAfterCreation)
+                Toggle("Checkout branch after creation", isOn: $checkoutAfterCreation)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
             }
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(actionTitle, action: submit)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -480,29 +480,29 @@ private struct BranchOperationDialog: View {
 
     private var title: String {
         switch dialog {
-        case .newBranch: return "新建分支"
-        case .checkoutRevision: return "检出 Tag 或版本"
+        case .newBranch: return "New Branch"
+        case .checkoutRevision: return "Checkout Tag or Revision"
         }
     }
 
     private var detail: String {
         switch dialog {
-        case .newBranch(let reference): return "从“\(reference.shortName)”创建。"
-        case .checkoutRevision: return "输入 Tag、分支名或 Commit Hash；检出后会进入 detached HEAD。"
+        case .newBranch(let reference): return "Create from '\(reference.shortName)'."
+        case .checkoutRevision: return "Enter a tag, branch, or commit hash. Checkout will enter detached HEAD."
         }
     }
 
     private var placeholder: String {
         switch dialog {
-        case .newBranch: return "分支名称"
-        case .checkoutRevision: return "Tag、分支或 Commit Hash"
+        case .newBranch: return "Branch name"
+        case .checkoutRevision: return "Tag, branch, or commit hash"
         }
     }
 
     private var actionTitle: String {
         switch dialog {
-        case .newBranch: return "创建"
-        case .checkoutRevision: return "检出"
+        case .newBranch: return "Create"
+        case .checkoutRevision: return "Checkout"
         }
     }
 
@@ -534,7 +534,7 @@ struct GitComparisonSheet: View {
                     .foregroundStyle(Color.accentColor)
                 Text(comparison.title).font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Button("完成", action: dismiss).keyboardShortcut(.cancelAction)
+                Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 14)
             .frame(height: 42)

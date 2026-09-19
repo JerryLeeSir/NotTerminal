@@ -383,7 +383,7 @@ struct ProjectBranchButton: View {
         } label: {
             HStack(spacing: 4) {
                 GitBranchGlyph()
-                Text(git.branch.isEmpty ? "分支" : git.branch)
+                Text(git.branch.isEmpty ? "Branch" : git.branch)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -403,7 +403,7 @@ struct ProjectBranchButton: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .onAppear { git.refresh() }
-        .help("切换 Git 分支")
+        .help("Switch Git branch")
         .background(
             BranchDropdownPresenter(
                 isPresented: $isPresented,

@@ -262,7 +262,7 @@ final class GitRepository: ObservableObject {
                 self.behind = 0
                 self.changes = []
                 self.references = []
-                self.message = "当前目录不是 Git 仓库"
+                self.message = "The current directory is not a Git repository."
                 completion?()
             }
         }
@@ -334,7 +334,7 @@ final class GitRepository: ObservableObject {
     ) {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            message = "请输入分支名称"
+            message = "Enter a branch name."
             completion?(false)
             return
         }
@@ -346,7 +346,7 @@ final class GitRepository: ObservableObject {
 
     func deleteBranch(_ reference: GitReference, completion: ((Bool) -> Void)? = nil) {
         guard reference.kind == .local, !reference.isCurrent else {
-            message = "不能删除当前分支"
+            message = "The current branch cannot be deleted."
             completion?(false)
             return
         }
@@ -358,7 +358,7 @@ final class GitRepository: ObservableObject {
         completion: ((Bool) -> Void)? = nil
     ) {
         compare(
-            title: "\(reference.shortName) 与工作区",
+            title: "\(reference.shortName) vs Working Tree",
             arguments: ["diff", "--no-ext-diff", "--no-color", reference.shortName, "--"],
             completion: completion
         )
@@ -370,7 +370,7 @@ final class GitRepository: ObservableObject {
         completion: ((Bool) -> Void)? = nil
     ) {
         compare(
-            title: "\(source.shortName) 与 \(target.shortName)",
+            title: "\(source.shortName) vs \(target.shortName)",
             arguments: [
                 "diff", "--no-ext-diff", "--no-color",
                 "\(source.shortName)...\(target.shortName)", "--",
@@ -401,7 +401,7 @@ final class GitRepository: ObservableObject {
             if result.status == 0 {
                 self.comparison = GitComparison(
                     title: title,
-                    patch: result.output.isEmpty ? "没有差异" : result.output
+                    patch: result.output.isEmpty ? "No differences." : result.output
                 )
                 self.message = nil
                 completion?(true)
