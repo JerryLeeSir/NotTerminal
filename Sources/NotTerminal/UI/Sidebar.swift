@@ -205,13 +205,14 @@ private struct WorkspaceTabs: View {
                 Spacer(minLength: 4)
 
                 Button {
-                    store.addTab()
+                    store.addTab(to: workspace)
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("在 \(workspace.name) 中新建终端")
             }

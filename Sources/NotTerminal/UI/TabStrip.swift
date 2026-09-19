@@ -64,7 +64,7 @@ struct WorkspaceToolbar: View {
             Spacer(minLength: 8)
 
             Button {
-                store.addTab()
+                store.addTab(to: workspace)
             } label: {
                 Label("新建终端", systemImage: "plus")
                     .font(.system(size: 11, weight: .medium))

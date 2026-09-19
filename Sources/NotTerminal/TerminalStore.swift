@@ -76,6 +76,22 @@ final class TerminalStore: ObservableObject {
         return addTab(to: workspace)
     }
 
+    @discardableResult
+    func addTab(to workspace: Workspace) -> TerminalTab? {
+        guard workspaces.contains(where: { $0 === workspace }) else { return nil }
+
+        let tab = TerminalTab(
+            controller: controller,
+            workingDirectory: workspace.directory.path
+        ) { [weak self] tab in
+            self?.close(tab: tab)
+        }
+
+        workspace.tabs.append(tab)
+        workspace.selectedTabID = tab.id
+        return tab
+    }
+
     func close(tab: TerminalTab) {
         guard let workspace = workspaces.first(where: { workspace in
             workspace.tabs.contains { $0.id == tab.id }
@@ -101,20 +117,6 @@ final class TerminalStore: ObservableObject {
         }
 
         workspace.selectedTabID = tab.id
-    }
-
-    @discardableResult
-    private func addTab(to workspace: Workspace) -> TerminalTab {
-        let tab = TerminalTab(
-            controller: controller,
-            workingDirectory: workspace.directory.path
-        ) { [weak self] tab in
-            self?.close(tab: tab)
-        }
-
-        workspace.tabs.append(tab)
-        workspace.selectedTabID = tab.id
-        return tab
     }
 
     private func restoreWorkspaces() {
