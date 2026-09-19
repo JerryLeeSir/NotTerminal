@@ -32,3 +32,13 @@ swift test
 - `Vendor/libghostty-spm/BinaryTarget/GhosttyKit.xcframework`：由上述 Ghostty 源码构建的 macOS `arm64`/`x86_64` 静态核心库，供普通离线构建直接链接。
 
 普通 NotTerminal 开发不需要重新编译 Ghostty 核心。各上游组件的许可证随源码保留在对应目录中。
+
+## 发布 DMG
+
+使用 Release 配置构建应用并生成带有 `Applications` 快捷方式的 DMG：
+
+```bash
+make dmg VERSION=0.1
+```
+
+产物位于 `dist/NotTerminal-0.1-macOS.dmg`。
