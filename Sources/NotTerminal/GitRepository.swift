@@ -16,6 +16,25 @@ struct GitChange: Identifiable, Equatable {
     }
 }
 
+struct GitBranch: Identifiable, Equatable {
+    let name: String
+    let isRemote: Bool
+
+    var id: String { "\(isRemote ? "remote" : "local"):\(name)" }
+
+    var displayName: String {
+        guard isRemote, let separator = name.firstIndex(of: "/") else { return name }
+        return String(name[name.index(after: separator)...])
+    }
+
+    var remoteName: String {
+        guard isRemote, let separator = name.firstIndex(of: "/") else { return "" }
+        return String(name[..<separator])
+    }
+
+    var checkoutTarget: String { displayName }
+}
+
 struct GitCommandResult: Sendable {
     let output: String
     let error: String
@@ -69,6 +88,21 @@ enum GitService {
         }
         return (branch, changes)
     }
+
+    static func parseBranches(_ output: String) -> (local: [String], remote: [String]) {
+        var local: [String] = []
+        var remote: [String] = []
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true).map(String.init) {
+            if line.hasPrefix("refs/heads/") {
+                local.append(String(line.dropFirst("refs/heads/".count)))
+            } else if line.hasPrefix("refs/remotes/") {
+                let name = String(line.dropFirst("refs/remotes/".count))
+                if name.hasSuffix("/HEAD") { continue }
+                remote.append(name)
+            }
+        }
+        return (local.sorted(), remote.sorted())
+    }
 }
 
 @MainActor
@@ -77,6 +111,8 @@ final class GitRepository: ObservableObject {
     @Published private(set) var isRepository = false
     @Published private(set) var branch = ""
     @Published private(set) var changes: [GitChange] = []
+    @Published private(set) var localBranches: [GitBranch] = []
+    @Published private(set) var remoteBranches: [GitBranch] = []
     @Published private(set) var isBusy = false
     @Published private(set) var message: String?
 
@@ -93,12 +129,35 @@ final class GitRepository: ObservableObject {
                 self.branch = status.branch
                 self.changes = status.changes
                 self.message = nil
+                self.refreshBranches()
             } else {
                 self.branch = ""
                 self.changes = []
+                self.localBranches = []
+                self.remoteBranches = []
                 self.message = "当前目录不是 Git 仓库"
             }
         }
+    }
+
+    func refreshBranches() {
+        run(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]) {
+            [weak self] result in
+            guard let self else { return }
+            guard result.status == 0 else {
+                self.localBranches = []
+                self.remoteBranches = []
+                return
+            }
+
+            let parsed = GitService.parseBranches(result.output)
+            self.localBranches = parsed.local.map { GitBranch(name: $0, isRemote: false) }
+            self.remoteBranches = parsed.remote.map { GitBranch(name: $0, isRemote: true) }
+        }
+    }
+
+    func checkout(_ branch: GitBranch) {
+        perform(["checkout", branch.checkoutTarget])
     }
 
     func stage(_ change: GitChange) {

@@ -209,22 +209,26 @@ private struct WorkspaceTabs: View {
 
                 Spacer(minLength: 4)
 
-                Button {
-                    store.addTab(to: workspace)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                        .background(
-                            addTabHovered ? Color.primary.opacity(0.08) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 6)
-                        )
+                if workspace.contentMode == .project {
+                    ProjectBranchButton(project: workspace.project)
+                } else {
+                    Button {
+                        store.addTab(to: workspace)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
+                            .background(
+                                addTabHovered ? Color.primary.opacity(0.08) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .onHover { addTabHovered = $0 }
+                    .help("在 \(workspace.name) 中新建终端")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .onHover { addTabHovered = $0 }
-                .help("在 \(workspace.name) 中新建终端")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 10)

@@ -4,11 +4,11 @@ import Foundation
 
 enum ProjectSidebarSection: String, CaseIterable, Identifiable {
     case files
-    case git
+    case commit
 
     var id: String { rawValue }
-    var title: String { self == .files ? "项目" : "Git" }
-    var icon: String { self == .files ? "folder" : "arrow.triangle.branch" }
+    var title: String { self == .files ? "项目" : "提交" }
+    var icon: String { self == .files ? "folder" : "checkmark.circle" }
 }
 
 @MainActor

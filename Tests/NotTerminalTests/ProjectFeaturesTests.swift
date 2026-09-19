@@ -57,6 +57,15 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertEqual(parsed.changes[2].badge, "U")
     }
 
+    func testGitBranchParserSplitsLocalAndRemoteAndSkipsHead() {
+        let parsed = GitService.parseBranches(
+            "refs/heads/main\nrefs/heads/feature/editor\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main\n"
+        )
+
+        XCTAssertEqual(parsed.local, ["feature/editor", "main"])
+        XCTAssertEqual(parsed.remote, ["origin/main"])
+    }
+
     func testGitServiceReadsRealRepositoryStatus() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
