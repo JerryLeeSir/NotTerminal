@@ -379,8 +379,7 @@ struct ProjectBranchButton: View {
             git.refreshBranches()
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9.5))
+                GitBranchGlyph()
                 Text(git.branch.isEmpty ? "分支" : git.branch)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
@@ -400,12 +399,62 @@ struct ProjectBranchButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .onAppear { git.refresh() }
         .help("切换 Git 分支")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             ProjectBranchPopover(git: git) {
                 isPresented = false
             }
         }
+    }
+}
+
+private struct GitBranchGlyph: View {
+    var body: some View {
+        GitBranchGlyphShape()
+            .stroke(
+                Color.secondary,
+                style: StrokeStyle(lineWidth: 1.45, lineCap: .round, lineJoin: .round)
+            )
+            .frame(width: 14, height: 15)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct GitBranchGlyphShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let scaleX = rect.width / 14
+        let scaleY = rect.height / 15
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * scaleX, y: rect.minY + y * scaleY)
+        }
+
+        var path = Path()
+        path.addEllipse(
+            in: CGRect(
+                x: rect.minX + 0.75 * scaleX,
+                y: rect.minY + 0.75 * scaleY,
+                width: 5 * scaleX,
+                height: 5 * scaleY
+            )
+        )
+        path.addEllipse(
+            in: CGRect(
+                x: rect.minX + 8.25 * scaleX,
+                y: rect.minY + 2.75 * scaleY,
+                width: 5 * scaleX,
+                height: 5 * scaleY
+            )
+        )
+        path.move(to: point(3.25, 5.75))
+        path.addLine(to: point(3.25, 14.25))
+        path.move(to: point(3.25, 8.25))
+        path.addCurve(
+            to: point(8.25, 5.25),
+            control1: point(6.5, 8.25),
+            control2: point(7.2, 5.25)
+        )
+        return path
     }
 }
 

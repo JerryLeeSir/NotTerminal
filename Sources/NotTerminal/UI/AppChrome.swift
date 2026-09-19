@@ -31,20 +31,11 @@ struct AppTopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Text("NT")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 25, height: 25)
-                    .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 7))
-
-                Text("NotTerminal")
-                    .font(.system(size: 12, weight: .semibold))
-            }
+            MacTrafficLightControls()
 
             if let workspace = store.selectedWorkspace {
-                Divider().frame(height: 17)
                 WorkspaceTopBarInfo(workspace: workspace)
+                ProjectBranchButton(project: workspace.project)
             }
 
             Spacer(minLength: 18)
@@ -72,7 +63,7 @@ struct AppTopBar: View {
             .chromeToolbarButton()
             .help("新建工作空间")
         }
-        .padding(.leading, 82)
+        .padding(.leading, 14)
         .padding(.trailing, 10)
         .frame(height: 48)
         .background(WindowChromeConfigurator())
@@ -81,33 +72,105 @@ struct AppTopBar: View {
 
 private struct WorkspaceTopBarInfo: View {
     @ObservedObject var workspace: Workspace
-    @ObservedObject private var git: GitRepository
-
-    init(workspace: Workspace) {
-        self.workspace = workspace
-        self.git = workspace.project.git
-    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.accentColor)
-                Text(workspace.name)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .lineLimit(1)
+        HStack(spacing: 8) {
+            Text(workspace.monogram)
+                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 27, height: 27)
+                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 7))
+
+            Text(workspace.name)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(height: 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("当前项目：\(workspace.name)")
+    }
+}
+
+private struct MacTrafficLightControls: View {
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TrafficLightButton(
+                color: Color(red: 1.000, green: 0.373, blue: 0.337),
+                symbol: "xmark",
+                title: "关闭窗口"
+            ) {
+                activeWindow?.performClose(nil)
             }
 
-            if git.isRepository, !git.branch.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch")
-                    Text(git.branch)
-                }
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
+            TrafficLightButton(
+                color: Color(red: 1.000, green: 0.741, blue: 0.180),
+                symbol: "minus",
+                title: "最小化窗口"
+            ) {
+                activeWindow?.performMiniaturize(nil)
+            }
+
+            TrafficLightButton(
+                color: Color(red: 0.157, green: 0.784, blue: 0.251),
+                symbol: "arrow.up.left.and.arrow.down.right",
+                title: "进入或退出全屏"
+            ) {
+                activeWindow?.toggleFullScreen(nil)
             }
         }
+        .environment(\.trafficLightsHovered, isHovering)
+        .onHover { isHovering = $0 }
+        .frame(height: 28)
+    }
+
+    private var activeWindow: NSWindow? {
+        NSApp.keyWindow ?? NSApp.mainWindow
+    }
+}
+
+private struct TrafficLightsHoveredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    var trafficLightsHovered: Bool {
+        get { self[TrafficLightsHoveredKey.self] }
+        set { self[TrafficLightsHoveredKey.self] = newValue }
+    }
+}
+
+private struct TrafficLightButton: View {
+    @Environment(\.trafficLightsHovered) private var controlsHovered
+
+    let color: Color
+    let symbol: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .overlay {
+                    Circle()
+                        .strokeBorder(.black.opacity(0.16), lineWidth: 0.5)
+                }
+                .overlay {
+                    if controlsHovered {
+                        Image(systemName: symbol)
+                            .font(.system(size: 6.5, weight: .black))
+                            .foregroundStyle(.black.opacity(0.58))
+                    }
+                }
+                .frame(width: 12, height: 12)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
     }
 }
 
@@ -333,6 +396,9 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.isMovableByWindowBackground = true
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
             window.backgroundColor = NSColor(
                 srgbRed: 0.157,
                 green: 0.161,

@@ -4,6 +4,13 @@ import XCTest
 
 @MainActor
 final class ProjectFeaturesTests: XCTestCase {
+    func testProjectMonogramUsesWordAndCamelCaseInitials() {
+        XCTAssertEqual(ProjectMonogram.make(from: "JiajunTV"), "JT")
+        XCTAssertEqual(ProjectMonogram.make(from: "NotTerminal"), "NT")
+        XCTAssertEqual(ProjectMonogram.make(from: "my-project"), "MP")
+        XCTAssertEqual(ProjectMonogram.make(from: "XMLParser"), "XP")
+    }
+
     func testBundledEditorFontCanBeRegistered() {
         BundledFontRegistry.registerFonts()
         XCTAssertEqual(

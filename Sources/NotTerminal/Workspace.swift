@@ -6,6 +6,38 @@ enum WorkspaceContentMode {
     case project
 }
 
+enum ProjectMonogram {
+    static func make(from name: String) -> String {
+        let characters = Array(name)
+        var result: [Character] = []
+        var startsWord = true
+
+        for index in characters.indices {
+            let character = characters[index]
+            guard character.isLetter || character.isNumber else {
+                startsWord = true
+                continue
+            }
+
+            let previous = index > characters.startIndex ? characters[index - 1] : nil
+            let next = index < characters.index(before: characters.endIndex)
+                ? characters[index + 1]
+                : nil
+            let beginsCamelCaseWord = character.isUppercase
+                && ((previous?.isLowercase ?? false)
+                    || ((previous?.isUppercase ?? false) && (next?.isLowercase ?? false)))
+
+            if startsWord || beginsCamelCaseWord {
+                result.append(character)
+                if result.count == 2 { break }
+            }
+            startsWord = false
+        }
+
+        return result.isEmpty ? "?" : String(result).uppercased()
+    }
+}
+
 @MainActor
 final class Workspace: ObservableObject, Identifiable {
     let id = UUID()
@@ -25,6 +57,10 @@ final class Workspace: ObservableObject, Identifiable {
 
     var name: String {
         directory.lastPathComponent
+    }
+
+    var monogram: String {
+        ProjectMonogram.make(from: name)
     }
 
     var selectedTab: TerminalTab? {
