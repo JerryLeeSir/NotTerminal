@@ -11,7 +11,7 @@ struct Sidebar: View {
         VStack(spacing: 0) {
             workspaceSection
             Divider()
-            tabSection
+            WorkspaceTabsPager()
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
@@ -51,11 +51,14 @@ struct Sidebar: View {
         .padding(12)
     }
 
-    @ViewBuilder
-    private var tabSection: some View {
-        if let workspace = store.selectedWorkspace {
-            WorkspaceTabs(workspace: workspace)
-        } else {
+}
+
+private struct WorkspaceTabsPager: View {
+    @EnvironmentObject private var store: TerminalStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if store.workspaces.isEmpty {
             VStack(spacing: 8) {
                 Spacer()
                 Image(systemName: "folder.badge.plus")
@@ -67,6 +70,30 @@ struct Sidebar: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity)
+        } else {
+            GeometryReader { geometry in
+                let selectedIndex = store.workspaces.firstIndex {
+                    $0.id == store.selectedWorkspaceID
+                } ?? 0
+
+                ZStack {
+                    ForEach(Array(store.workspaces.enumerated()), id: \.element.id) { index, workspace in
+                        let isActive = index == selectedIndex
+
+                        WorkspaceTabs(workspace: workspace)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .offset(x: CGFloat(index - selectedIndex) * geometry.size.width)
+                            .allowsHitTesting(isActive)
+                            .accessibilityHidden(!isActive)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.32),
+                    value: store.selectedWorkspaceID
+                )
+            }
         }
     }
 }
