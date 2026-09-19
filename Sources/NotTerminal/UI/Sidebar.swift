@@ -4,7 +4,9 @@ struct Sidebar: View {
     @EnvironmentObject private var store: TerminalStore
 
     private let workspaceColumns = [
-        GridItem(.adaptive(minimum: 48, maximum: 56), spacing: 6)
+        GridItem(.flexible(), spacing: 6),
+        GridItem(.flexible(), spacing: 6),
+        GridItem(.flexible(), spacing: 6)
     ]
 
     var body: some View {
@@ -37,18 +39,16 @@ struct Sidebar: View {
                 .help("选择目录并新建工作空间")
             }
 
-            LazyVGrid(columns: workspaceColumns, alignment: .leading, spacing: 6) {
+            LazyVGrid(columns: workspaceColumns, alignment: .center, spacing: 6) {
                 ForEach(store.workspaces) { workspace in
                     WorkspaceTile(
                         workspace: workspace,
                         isSelected: workspace.id == store.selectedWorkspaceID
                     )
                 }
-
-                AddWorkspaceTile()
             }
         }
-        .padding(10)
+        .padding(8)
     }
 
 }
@@ -131,64 +131,31 @@ private struct WorkspaceTile: View {
         Button {
             store.select(workspace)
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-
-                Text(workspace.name)
-                    .font(.system(size: 9, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.primary)
+            RoundedRectangle(cornerRadius: 10)
+                .fill(
+                    isSelected
+                        ? Color.accentColor.opacity(0.16)
+                        : Color(nsColor: .windowBackgroundColor)
+                )
+                .aspectRatio(64 / 38, contentMode: .fit)
+                .overlay {
+                    Text(workspace.name.prefix(1).uppercased())
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(
+                            isSelected
+                                ? Color.accentColor.opacity(0.65)
+                                : Color.primary.opacity(0.08),
+                            lineWidth: 1
+                        )
+                }
             }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.16) : Color(nsColor: .windowBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(
-                        isSelected ? Color.accentColor.opacity(0.65) : Color.primary.opacity(0.08),
-                        lineWidth: 1
-                    )
-            }
-        }
         .buttonStyle(.plain)
         .help(workspace.directory.path)
         .accessibilityLabel("工作空间：\(workspace.name)")
-    }
-}
-
-private struct AddWorkspaceTile: View {
-    @EnvironmentObject private var store: TerminalStore
-
-    var body: some View {
-        Button {
-            store.chooseWorkspaceDirectory()
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .medium))
-                Text("新建")
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .background(
-                Color(nsColor: .windowBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-        .help("选择目录并新建工作空间")
     }
 }
 
