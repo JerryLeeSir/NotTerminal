@@ -265,7 +265,16 @@ private struct CodeTextEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.ruler = ruler
         EditorSyntaxHighlighter.apply(to: textView)
+        DispatchQueue.main.async {
+            Self.scrollToLeftEdge(scrollView)
+        }
         return scrollView
+    }
+
+    private static func scrollToLeftEdge(_ scrollView: NSScrollView) {
+        let rulerWidth = scrollView.verticalRulerView?.ruleThickness ?? 0
+        scrollView.contentView.scroll(to: NSPoint(x: -rulerWidth, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -277,6 +286,7 @@ private struct CodeTextEditor: NSViewRepresentable {
             applyTextStyle(to: textView)
             context.coordinator.ruler?.needsDisplay = true
             EditorSyntaxHighlighter.apply(to: textView)
+            Self.scrollToLeftEdge(scrollView)
         }
     }
 
@@ -342,6 +352,12 @@ private final class LineNumberRulerView: NSRulerView {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
         ruleThickness = 54
+        if #available(macOS 14.0, *) {
+            clipsToBounds = true
+        } else {
+            wantsLayer = true
+            layer?.masksToBounds = true
+        }
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
