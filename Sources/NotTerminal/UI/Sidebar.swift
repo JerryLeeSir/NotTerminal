@@ -26,7 +26,8 @@ struct Sidebar: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .listStyle(.sidebar)
+        .listStyle(.plain)
+        .background(Color(nsColor: .controlBackgroundColor))
         .safeAreaInset(edge: .bottom) {
             Button {
                 store.addTab()
