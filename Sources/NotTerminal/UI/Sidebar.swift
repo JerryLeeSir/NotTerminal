@@ -2,6 +2,7 @@ import SwiftUI
 
 struct Sidebar: View {
     @EnvironmentObject private var store: TerminalStore
+    @State private var addWorkspaceHovered = false
 
     private let workspaceColumns = [
         GridItem(.flexible(), spacing: 6),
@@ -33,9 +34,14 @@ struct Sidebar: View {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
                         .frame(width: 20, height: 20)
+                        .background(
+                            addWorkspaceHovered ? Color.primary.opacity(0.08) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 5)
+                        )
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .onHover { addWorkspaceHovered = $0 }
                 .help("选择目录并新建工作空间")
             }
 
@@ -125,6 +131,7 @@ private struct WorkspaceTabsPager: View {
 private struct WorkspaceTile: View {
     @EnvironmentObject private var store: TerminalStore
     @ObservedObject var workspace: Workspace
+    @State private var hovered = false
     let isSelected: Bool
 
     var body: some View {
@@ -132,11 +139,7 @@ private struct WorkspaceTile: View {
             store.select(workspace)
         } label: {
             RoundedRectangle(cornerRadius: 10)
-                .fill(
-                    isSelected
-                        ? Color.accentColor.opacity(0.16)
-                        : Color(nsColor: .windowBackgroundColor)
-                )
+                .fill(fillColor)
                 .aspectRatio(64 / 38, contentMode: .fit)
                 .overlay {
                     Text(workspace.name.prefix(1).uppercased())
@@ -154,14 +157,27 @@ private struct WorkspaceTile: View {
                 }
             }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
         .help(workspace.directory.path)
         .accessibilityLabel("工作空间：\(workspace.name)")
+    }
+
+    private var fillColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+        if hovered {
+            return Color.primary.opacity(0.06)
+        }
+        return Color(nsColor: .windowBackgroundColor)
     }
 }
 
 private struct WorkspaceTabs: View {
     @EnvironmentObject private var store: TerminalStore
     @ObservedObject var workspace: Workspace
+    @State private var headerHovered = false
+    @State private var addTabHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -179,13 +195,24 @@ private struct WorkspaceTabs: View {
                         .font(.system(size: 11, weight: .semibold))
                         .frame(width: 26, height: 26)
                         .contentShape(Rectangle())
+                        .background(
+                            addTabHovered ? Color.primary.opacity(0.08) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
+                .onHover { addTabHovered = $0 }
                 .help("在 \(workspace.name) 中新建终端")
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 8)
             .padding(.vertical, 10)
+            .background(
+                headerHovered ? Color.primary.opacity(0.04) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 6)
+            )
+            .padding(.horizontal, 4)
+            .onHover { headerHovered = $0 }
 
             ScrollView {
                 LazyVStack(spacing: 3) {
@@ -238,7 +265,9 @@ private struct TerminalSidebarRow: View {
         .padding(.horizontal, 9)
         .frame(height: 34)
         .background(
-            isSelected ? Color.primary.opacity(0.09) : Color.clear,
+            isSelected
+                ? Color.primary.opacity(0.09)
+                : (hovered ? Color.primary.opacity(0.05) : Color.clear),
             in: RoundedRectangle(cornerRadius: 7)
         )
         .contentShape(RoundedRectangle(cornerRadius: 7))
