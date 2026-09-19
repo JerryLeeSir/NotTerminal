@@ -75,11 +75,7 @@ private struct WorkspaceTopBarInfo: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(workspace.monogram)
-                .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 27, height: 27)
-                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 7))
+            ProjectMonogramBadge(monogram: workspace.monogram)
 
             Text(workspace.name)
                 .font(.system(size: 12, weight: .semibold))

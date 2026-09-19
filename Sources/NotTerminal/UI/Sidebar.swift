@@ -143,9 +143,7 @@ private struct WorkspaceTile: View {
                 .fill(fillColor)
                 .aspectRatio(64 / 38, contentMode: .fit)
                 .overlay {
-                    Text(workspace.name.prefix(1).uppercased())
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    ProjectMonogramBadge(monogram: workspace.monogram, size: 25)
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 10)
@@ -210,9 +208,7 @@ private struct WorkspaceTabs: View {
 
                 Spacer(minLength: 4)
 
-                if workspace.contentMode == .project {
-                    ProjectBranchButton(project: workspace.project)
-                } else {
+                if workspace.contentMode == .terminal {
                     Button {
                         store.addTab(to: workspace)
                     } label: {
