@@ -1,0 +1,2 @@
+# 第三方源码保持上游原貌，不将其原有空白格式视为本项目的 diff 错误。
+/Vendor/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

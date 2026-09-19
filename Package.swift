@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "NotTerminal", targets: ["NotTerminal"])
     ],
     dependencies: [
-        .package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.5.2")
+        .package(path: "Vendor/libghostty-spm")
     ],
     targets: [
         .executableTarget(
