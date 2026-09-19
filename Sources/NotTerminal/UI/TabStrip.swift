@@ -3,14 +3,13 @@ import SwiftUI
 
 struct TerminalTabsHost: View {
     @ObservedObject var workspace: Workspace
-    let isWorkspaceVisible: Bool
     let isWorkspaceActive: Bool
     @FocusState private var focusedTabID: UUID?
 
     var body: some View {
         ZStack {
             ForEach(workspace.tabs) { tab in
-                let isSelected = isWorkspaceVisible && tab.id == workspace.selectedTabID
+                let isSelected = tab.id == workspace.selectedTabID
 
                 TerminalSurfaceView(context: tab.state)
                     .terminalFocused($focusedTabID, equals: tab.id)
