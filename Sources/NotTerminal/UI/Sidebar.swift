@@ -166,17 +166,9 @@ private struct WorkspaceTabs: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(workspace.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-
-                    Text(workspace.directory.path)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(workspace.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
 
                 Spacer(minLength: 4)
 

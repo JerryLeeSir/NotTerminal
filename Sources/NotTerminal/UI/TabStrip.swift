@@ -62,15 +62,6 @@ struct WorkspaceToolbar: View {
                 .truncationMode(.middle)
 
             Spacer(minLength: 8)
-
-            Button {
-                store.addTab(to: workspace)
-            } label: {
-                Label("新建终端", systemImage: "plus")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.borderless)
-            .help("在当前工作空间中新建终端")
         }
         .padding(.horizontal, 12)
         .frame(height: 40)
