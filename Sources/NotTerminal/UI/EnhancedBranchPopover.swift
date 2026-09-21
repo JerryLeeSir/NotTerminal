@@ -2,11 +2,13 @@ import SwiftUI
 
 struct EnhancedBranchPopover: View {
     @ObservedObject var git: GitRepository
+    let referenceListHeight: CGFloat
     let dismiss: () -> Void
     let openCommit: () -> Void
 
     @State private var query = ""
     @State private var collapsedGroups: Set<String> = []
+    @State private var collapsedSections: Set<String> = []
     @State private var dialog: BranchDialog?
     @State private var branchPendingDeletion: GitReference?
     @FocusState private var searchFocused: Bool
@@ -15,14 +17,16 @@ struct EnhancedBranchPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             searchBar
             Divider()
-            actionList
+            primaryActions
+            Divider()
+            branchActions
             Divider()
             referenceList
             if let message = git.message, !message.isEmpty {
                 errorBanner(message)
             }
         }
-        .frame(width: 375)
+        .frame(width: 360)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             searchFocused = true
@@ -52,32 +56,68 @@ struct EnhancedBranchPopover: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            TextField("Search branches and actions", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .focused($searchFocused)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                TextField("Search for branches and actions", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13.5))
+                    .focused($searchFocused)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                if git.isBusy { ProgressView().controlSize(.mini) }
             }
-            if git.isBusy { ProgressView().controlSize(.mini) }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.primary.opacity(0.17), lineWidth: 1)
+            }
+
+            Button {
+                git.refreshBranches()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 27, height: 27)
+            }
+            .buttonStyle(BranchToolbarButtonStyle())
+            .help("Refresh branches")
+            .disabled(git.isBusy)
+
+            Menu {
+                Button("Fetch All Remotes") { git.fetch() }
+                Button("Refresh Branches") { git.refreshBranches() }
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 27, height: 27)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Git options")
+            .disabled(git.isBusy)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 42)
-        .background(Color.primary.opacity(0.035))
+        .padding(.horizontal, 8)
+        .frame(height: 48)
+        .background(Color.primary.opacity(0.018))
     }
 
-    private var actionList: some View {
-        VStack(spacing: 1) {
-            if actionMatches("Fetch", aliases: ["fetch"]) {
+    private var primaryActions: some View {
+        VStack(spacing: 0) {
+            if !normalizedQuery.isEmpty, actionMatches("Fetch", aliases: ["fetch"]) {
                 actionRow("Fetch", icon: "arrow.down.to.line") {
                     git.fetch { succeeded in if succeeded { dismiss() } }
                 }
@@ -89,7 +129,7 @@ struct EnhancedBranchPopover: View {
                 .disabled(git.currentReference == nil || git.isBusy)
             }
             if actionMatches("Commit", aliases: ["commit"]) {
-                actionRow("Commit…", icon: "checkmark.circle", shortcut: "⌘K") {
+                actionRow("Commit…", icon: "smallcircle.filled.circle", shortcut: "⌘K") {
                     dismiss()
                     openCommit()
                 }
@@ -101,6 +141,13 @@ struct EnhancedBranchPopover: View {
                 }
                 .disabled(git.currentReference == nil || git.isBusy)
             }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+    }
+
+    private var branchActions: some View {
+        VStack(spacing: 0) {
             if actionMatches("New Branch", aliases: ["new branch"]) {
                 actionRow("New Branch…", icon: "plus", shortcut: "⌥⌘N") {
                     guard let current = git.currentReference else { return }
@@ -116,7 +163,7 @@ struct EnhancedBranchPopover: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
     }
 
     private func actionRow(
@@ -129,25 +176,25 @@ struct EnhancedBranchPopover: View {
         Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: icon)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
-                    .frame(width: 17)
+                    .frame(width: 21)
                 Text(title)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13.5))
                 Spacer()
                 if let detail, !detail.isEmpty {
                     Text(detail)
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 11.5))
                         .foregroundStyle(.tertiary)
                 }
                 if let shortcut {
                     Text(shortcut)
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.horizontal, 7)
-            .frame(height: 28)
+            .padding(.horizontal, 9)
+            .frame(height: 30)
             .contentShape(Rectangle())
         }
         .buttonStyle(BranchHoverButtonStyle())
@@ -161,42 +208,43 @@ struct EnhancedBranchPopover: View {
             emptyState("No matching branches or tags.")
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if normalizedQuery.isEmpty, !git.recentReferences.isEmpty {
-                        sectionHeader("Recent", icon: "clock")
-                        ForEach(git.recentReferences) { referenceRow($0, indented: false) }
+                        sectionHeader("Recent", id: "recent")
+                        if !collapsedSections.contains("recent") {
+                            referenceTree(recentLocalReferences, idPrefix: "recent")
+                            ForEach(recentNonLocalReferences) { referenceRow($0, level: 0) }
+                        }
                     }
 
                     if normalizedQuery.isEmpty {
                         localReferenceSections
                         remoteReferenceSections
                         if !git.tagReferences.isEmpty {
-                            sectionHeader("Tags", icon: "tag")
-                            ForEach(git.tagReferences) { referenceRow($0, indented: true) }
+                            sectionHeader("Tags", id: "tags")
+                            if !collapsedSections.contains("tags") {
+                                ForEach(git.tagReferences) { referenceRow($0, level: 0) }
+                            }
                         }
                     } else {
-                        sectionHeader("Search Results", icon: "magnifyingglass")
-                        ForEach(filteredReferences) { referenceRow($0, indented: false) }
+                        sectionHeader("Search Results", id: "search")
+                        if !collapsedSections.contains("search") {
+                            ForEach(filteredReferences) { referenceRow($0, level: 0) }
+                        }
                     }
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 6)
+                .padding(.vertical, 9)
             }
-            .frame(height: 280)
+            .frame(height: min(referenceListHeight, referenceContentHeight))
         }
     }
 
     @ViewBuilder
     private var localReferenceSections: some View {
-        let groups = groupedLocalReferences
-        if !groups.isEmpty {
-            sectionHeader("Local", icon: "point.3.connected.trianglepath.dotted")
-            ForEach(groups) { group in
-                if group.title.isEmpty {
-                    ForEach(group.references) { referenceRow($0, indented: true) }
-                } else {
-                    groupRow(group, icon: "folder")
-                }
+        if !git.localReferences.isEmpty {
+            sectionHeader("Local", id: "local")
+            if !collapsedSections.contains("local") {
+                referenceTree(git.localReferences, idPrefix: "local")
             }
         }
     }
@@ -205,8 +253,21 @@ struct EnhancedBranchPopover: View {
     private var remoteReferenceSections: some View {
         let groups = groupedRemoteReferences
         if !groups.isEmpty {
-            sectionHeader("Remote", icon: "cloud")
-            ForEach(groups) { group in groupRow(group, icon: "externaldrive") }
+            sectionHeader("Remote", id: "remote")
+            if !collapsedSections.contains("remote") {
+                ForEach(groups) { group in groupRow(group, icon: "folder") }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func referenceTree(_ references: [GitReference], idPrefix: String) -> some View {
+        ForEach(groupedBranchReferences(references, idPrefix: idPrefix)) { group in
+            if group.title.isEmpty {
+                ForEach(group.references) { referenceRow($0, level: 0) }
+            } else {
+                groupRow(group, icon: "folder")
+            }
         }
     }
 
@@ -221,31 +282,29 @@ struct EnhancedBranchPopover: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: collapsedGroups.contains(group.id) ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 9, weight: .semibold))
                         .frame(width: 10)
                     Image(systemName: icon)
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                     Text(group.title)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 13.5))
                     Spacer()
-                    Text("\(group.references.count)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 7)
-                .frame(height: 25)
+                .padding(.leading, 34)
+                .padding(.trailing, 13)
+                .frame(height: 28)
                 .contentShape(Rectangle())
             }
             .buttonStyle(BranchHoverButtonStyle())
 
             if !collapsedGroups.contains(group.id) {
-                ForEach(group.references) { referenceRow($0, indented: true) }
+                ForEach(group.references) { referenceRow($0, level: 1) }
             }
         }
     }
 
-    private func referenceRow(_ reference: GitReference, indented: Bool) -> some View {
+    private func referenceRow(_ reference: GitReference, level: Int) -> some View {
         Menu {
             Button("New Branch from '\(reference.shortName)'…") {
                 dialog = .newBranch(reference)
@@ -286,54 +345,59 @@ struct EnhancedBranchPopover: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: referenceIcon(reference))
-                    .font(.system(size: 10.5, weight: reference.isCurrent ? .semibold : .regular))
-                    .foregroundStyle(reference.isCurrent ? Color.accentColor : Color.secondary)
-                    .frame(width: 15)
-                Text(referenceRowTitle(reference, indented: indented))
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: reference.isCurrent ? .semibold : .regular))
+                    .foregroundStyle(referenceIconColor(reference))
+                    .frame(width: 17)
+                Text(referenceRowTitle(reference, grouped: level > 0))
+                    .font(.system(size: 13.5))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 7)
                 if let upstream = reference.upstreamShortName {
                     Text(upstream)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                } else if reference.kind == .remote, let remote = reference.remoteName {
-                    Text(remote)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.leading, indented ? 20 : 7)
-            .padding(.trailing, 7)
-            .frame(height: 27)
-            .background(
-                reference.isCurrent ? Color.accentColor.opacity(0.12) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 5)
-            )
+            .padding(.leading, level > 0 ? 68 : 49)
+            .padding(.trailing, 13)
+            .frame(height: 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .frame(maxWidth: .infinity)
         .disabled(git.isBusy)
     }
 
-    private func sectionHeader(_ title: String, icon: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).frame(width: 13)
-            Text(title)
-            Spacer()
+    private func sectionHeader(_ title: String, id: String) -> some View {
+        Button {
+            if collapsedSections.contains(id) {
+                collapsedSections.remove(id)
+            } else {
+                collapsedSections.insert(id)
+            }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: collapsedSections.contains(id) ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 10)
+                Text(title)
+                Spacer()
+            }
+            .font(.system(size: 13.5, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .frame(height: 29)
+            .contentShape(Rectangle())
         }
-        .font(.system(size: 10.5, weight: .semibold))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 7)
-        .padding(.top, 7)
-        .padding(.bottom, 2)
+        .buttonStyle(BranchHoverButtonStyle(cornerRadius: 0))
     }
 
     private func emptyState(_ title: String) -> some View {
@@ -368,16 +432,78 @@ struct EnhancedBranchPopover: View {
         }
     }
 
-    private var groupedLocalReferences: [ReferenceGroup] {
-        let grouped = Dictionary(grouping: git.localReferences) { reference -> String in
+    private var referenceContentHeight: CGFloat {
+        let sectionHeight: CGFloat = 29
+        let itemHeight: CGFloat = 28
+        let verticalPadding: CGFloat = 18
+
+        if !normalizedQuery.isEmpty {
+            let items = collapsedSections.contains("search") ? 0 : filteredReferences.count
+            return verticalPadding + sectionHeight + CGFloat(items) * itemHeight
+        }
+
+        var sectionCount = 0
+        var itemCount = 0
+        if !git.recentReferences.isEmpty {
+            sectionCount += 1
+            if !collapsedSections.contains("recent") {
+                itemCount += treeItemCount(recentLocalReferences, idPrefix: "recent")
+                itemCount += recentNonLocalReferences.count
+            }
+        }
+        if !git.localReferences.isEmpty {
+            sectionCount += 1
+            if !collapsedSections.contains("local") {
+                itemCount += treeItemCount(git.localReferences, idPrefix: "local")
+            }
+        }
+        if !git.remoteReferences.isEmpty {
+            sectionCount += 1
+            if !collapsedSections.contains("remote") {
+                itemCount += groupedRemoteReferences.reduce(0) { count, group in
+                    count + 1 + (collapsedGroups.contains(group.id) ? 0 : group.references.count)
+                }
+            }
+        }
+        if !git.tagReferences.isEmpty {
+            sectionCount += 1
+            if !collapsedSections.contains("tags") { itemCount += git.tagReferences.count }
+        }
+        return verticalPadding
+            + CGFloat(sectionCount) * sectionHeight
+            + CGFloat(itemCount) * itemHeight
+    }
+
+    private func treeItemCount(_ references: [GitReference], idPrefix: String) -> Int {
+        groupedBranchReferences(references, idPrefix: idPrefix).reduce(0) { count, group in
+            if group.title.isEmpty { return count + group.references.count }
+            return count + 1 + (collapsedGroups.contains(group.id) ? 0 : group.references.count)
+        }
+    }
+
+    private func groupedBranchReferences(
+        _ references: [GitReference],
+        idPrefix: String
+    ) -> [ReferenceGroup] {
+        let grouped = Dictionary(grouping: references) { reference -> String in
             let components = reference.shortName.split(separator: "/")
             return components.count > 1 ? components.dropLast().joined(separator: "/") : ""
         }
-        return grouped.map { ReferenceGroup(id: "local:\($0.key)", title: $0.key, references: $0.value) }
+        return grouped.map {
+            ReferenceGroup(id: "\(idPrefix):\($0.key)", title: $0.key, references: $0.value)
+        }
             .sorted { lhs, rhs in
                 if lhs.title.isEmpty != rhs.title.isEmpty { return lhs.title.isEmpty }
                 return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
             }
+    }
+
+    private var recentLocalReferences: [GitReference] {
+        git.recentReferences.filter { $0.kind == .local }
+    }
+
+    private var recentNonLocalReferences: [GitReference] {
+        git.recentReferences.filter { $0.kind != .local }
     }
 
     private var groupedRemoteReferences: [ReferenceGroup] {
@@ -405,16 +531,23 @@ struct EnhancedBranchPopover: View {
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
-        if reference.isCurrent { return "checkmark" }
+        if reference.isCurrent { return "tag.fill" }
         switch reference.kind {
         case .local: return "point.3.connected.trianglepath.dotted"
-        case .remote: return "cloud"
+        case .remote: return "star.fill"
         case .tag: return "tag"
         }
     }
 
-    private func referenceRowTitle(_ reference: GitReference, indented: Bool) -> String {
-        guard indented, reference.kind == .local, reference.shortName.contains("/") else {
+    private func referenceIconColor(_ reference: GitReference) -> Color {
+        if reference.isCurrent || reference.kind == .remote {
+            return Color(red: 0.96, green: 0.72, blue: 0.25)
+        }
+        return Color.secondary
+    }
+
+    private func referenceRowTitle(_ reference: GitReference, grouped: Bool) -> String {
+        guard grouped, reference.shortName.contains("/") else {
             return reference.displayName
         }
         return reference.shortName.split(separator: "/").last.map(String.init)
@@ -553,7 +686,12 @@ struct GitComparisonSheet: View {
 }
 
 private struct BranchHoverButtonStyle: ButtonStyle {
+    let cornerRadius: CGFloat
     @State private var hovered = false
+
+    init(cornerRadius: CGFloat = 5) {
+        self.cornerRadius = cornerRadius
+    }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -561,6 +699,21 @@ private struct BranchHoverButtonStyle: ButtonStyle {
                 configuration.isPressed
                     ? Color.primary.opacity(0.10)
                     : (hovered ? Color.primary.opacity(0.06) : Color.clear),
+                in: RoundedRectangle(cornerRadius: cornerRadius)
+            )
+            .onHover { hovered = $0 }
+    }
+}
+
+private struct BranchToolbarButtonStyle: ButtonStyle {
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed
+                    ? Color.primary.opacity(0.12)
+                    : (hovered ? Color.primary.opacity(0.07) : Color.clear),
                 in: RoundedRectangle(cornerRadius: 5)
             )
             .onHover { hovered = $0 }

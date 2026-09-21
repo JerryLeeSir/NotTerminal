@@ -451,9 +451,13 @@ private final class BranchDropdownView: NSView {
 
     private var panel: BranchDropdownPanel?
     private var mouseMonitor: Any?
+    private var applicationDeactivationObserver: NSObjectProtocol?
 
     deinit {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        if let applicationDeactivationObserver {
+            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        }
         panel?.orderOut(nil)
     }
 
@@ -470,7 +474,10 @@ private final class BranchDropdownView: NSView {
     private func present(git: GitRepository) {
         guard panel == nil, let window else { return }
 
-        let hosting = makeHosting(git: git)
+        let screen = window.screen ?? NSScreen.main
+        let availableHeight = screen?.visibleFrame.height ?? 800
+        let referenceListHeight = max(280, min(560, availableHeight - 220))
+        let hosting = makeHosting(git: git, referenceListHeight: referenceListHeight)
         let size = hosting.fittingSize
         hosting.frame = NSRect(origin: .zero, size: size)
 
@@ -484,7 +491,7 @@ private final class BranchDropdownView: NSView {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = .popUpMenu
@@ -495,7 +502,7 @@ private final class BranchDropdownView: NSView {
 
         var originX = screenOrigin.x
         var originY = screenOrigin.y - size.height
-        if let screen = window.screen ?? NSScreen.main {
+        if let screen {
             let visibleFrame = screen.visibleFrame
             originY = max(originY, visibleFrame.minY)
             originX = max(originX, visibleFrame.minX)
@@ -511,13 +518,18 @@ private final class BranchDropdownView: NSView {
         panel.makeKeyAndOrderFront(nil)
 
         installMonitorIfNeeded()
+        installApplicationDeactivationObserverIfNeeded()
     }
 
-    private func makeHosting(git: GitRepository) -> NSHostingView<AnyView> {
+    private func makeHosting(
+        git: GitRepository,
+        referenceListHeight: CGFloat
+    ) -> NSHostingView<AnyView> {
         NSHostingView(
             rootView: AnyView(
                 EnhancedBranchPopover(
                     git: git,
+                    referenceListHeight: referenceListHeight,
                     dismiss: { [weak self] in
                         guard let self else { return }
                         self.dismiss()
@@ -525,7 +537,7 @@ private final class BranchDropdownView: NSView {
                     },
                     openCommit: { [weak self] in self?.openCommit?() }
                 )
-                .frame(width: 375)
+                .frame(width: 360)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
@@ -540,6 +552,10 @@ private final class BranchDropdownView: NSView {
     private func dismiss() {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         mouseMonitor = nil
+        if let applicationDeactivationObserver {
+            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        }
+        applicationDeactivationObserver = nil
         panel?.orderOut(nil)
         panel = nil
     }
@@ -552,6 +568,19 @@ private final class BranchDropdownView: NSView {
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             self?.handleMouseEvent(event)
+        }
+    }
+
+    private func installApplicationDeactivationObserverIfNeeded() {
+        guard applicationDeactivationObserver == nil else { return }
+        applicationDeactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.dismiss()
+            self.onDismiss?()
         }
     }
 
