@@ -476,8 +476,8 @@ private final class BranchDropdownView: NSView {
 
         let screen = window.screen ?? NSScreen.main
         let availableHeight = screen?.visibleFrame.height ?? 800
-        let referenceListHeight = max(280, min(560, availableHeight - 220))
-        let hosting = makeHosting(git: git, referenceListHeight: referenceListHeight)
+        let maximumHeight = max(360, min(780, availableHeight - 12))
+        let hosting = makeHosting(git: git, maximumHeight: maximumHeight)
         let size = hosting.fittingSize
         hosting.frame = NSRect(origin: .zero, size: size)
 
@@ -523,13 +523,13 @@ private final class BranchDropdownView: NSView {
 
     private func makeHosting(
         git: GitRepository,
-        referenceListHeight: CGFloat
+        maximumHeight: CGFloat
     ) -> NSHostingView<AnyView> {
         NSHostingView(
             rootView: AnyView(
                 EnhancedBranchPopover(
                     git: git,
-                    referenceListHeight: referenceListHeight,
+                    maximumHeight: maximumHeight,
                     dismiss: { [weak self] in
                         guard let self else { return }
                         self.dismiss()

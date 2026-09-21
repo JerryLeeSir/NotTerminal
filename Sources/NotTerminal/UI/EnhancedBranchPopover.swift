@@ -2,7 +2,7 @@ import SwiftUI
 
 struct EnhancedBranchPopover: View {
     @ObservedObject var git: GitRepository
-    let referenceListHeight: CGFloat
+    let maximumHeight: CGFloat
     let dismiss: () -> Void
     let openCommit: () -> Void
 
@@ -15,19 +15,22 @@ struct EnhancedBranchPopover: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            searchBar
-            Divider()
-            primaryActions
-            Divider()
-            branchActions
-            Divider()
-            referenceList
-            if let message = git.message, !message.isEmpty {
-                errorBanner(message)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                searchBar
+                Divider()
+                primaryActions
+                Divider()
+                branchActions
+                Divider()
+                referenceList
+                if let message = git.message, !message.isEmpty {
+                    errorBanner(message)
+                }
             }
         }
         .frame(width: 360)
+        .frame(height: min(maximumHeight, panelContentHeight))
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             searchFocused = true
@@ -208,35 +211,32 @@ struct EnhancedBranchPopover: View {
         } else if filteredReferences.isEmpty {
             emptyState("No matching branches or tags.")
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if normalizedQuery.isEmpty, !git.recentReferences.isEmpty {
-                        sectionHeader("Recent", id: "recent")
-                        if !collapsedSections.contains("recent") {
-                            referenceTree(recentLocalReferences, idPrefix: "recent")
-                            ForEach(recentNonLocalReferences) { referenceRow($0, level: 0) }
-                        }
-                    }
-
-                    if normalizedQuery.isEmpty {
-                        localReferenceSections
-                        remoteReferenceSections
-                        if !git.tagReferences.isEmpty {
-                            sectionHeader("Tags", id: "tags")
-                            if !collapsedSections.contains("tags") {
-                                ForEach(git.tagReferences) { referenceRow($0, level: 0) }
-                            }
-                        }
-                    } else {
-                        sectionHeader("Search Results", id: "search")
-                        if !collapsedSections.contains("search") {
-                            ForEach(filteredReferences) { referenceRow($0, level: 0) }
-                        }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if normalizedQuery.isEmpty, !git.recentReferences.isEmpty {
+                    sectionHeader("Recent", id: "recent")
+                    if !collapsedSections.contains("recent") {
+                        referenceTree(recentLocalReferences, idPrefix: "recent")
+                        ForEach(recentNonLocalReferences) { referenceRow($0, level: 0) }
                     }
                 }
-                .padding(.vertical, 9)
+
+                if normalizedQuery.isEmpty {
+                    localReferenceSections
+                    remoteReferenceSections
+                    if !git.tagReferences.isEmpty {
+                        sectionHeader("Tags", id: "tags")
+                        if !collapsedSections.contains("tags") {
+                            ForEach(git.tagReferences) { referenceRow($0, level: 0) }
+                        }
+                    }
+                } else {
+                    sectionHeader("Search Results", id: "search")
+                    if !collapsedSections.contains("search") {
+                        ForEach(filteredReferences) { referenceRow($0, level: 0) }
+                    }
+                }
             }
-            .frame(height: min(referenceListHeight, referenceContentHeight))
+            .padding(.vertical, 9)
         }
     }
 
@@ -451,6 +451,44 @@ struct EnhancedBranchPopover: View {
             $0.shortName.localizedCaseInsensitiveContains(normalizedQuery)
                 || ($0.upstreamShortName?.localizedCaseInsensitiveContains(normalizedQuery) ?? false)
         }
+    }
+
+    private var panelContentHeight: CGFloat {
+        let headerHeight: CGFloat = 48
+        let dividerHeight: CGFloat = 1
+        let actionRowHeight: CGFloat = 30
+        let actionGroupPadding: CGFloat = 14
+        let primaryHeight = actionGroupPadding + CGFloat(primaryActionCount) * actionRowHeight
+        let branchHeight = actionGroupPadding + CGFloat(branchActionCount) * actionRowHeight
+        let referencesHeight = (!git.isRepository || filteredReferences.isEmpty)
+            ? 120
+            : referenceContentHeight
+        let errorHeight: CGFloat = git.message?.isEmpty == false ? 54 : 0
+        return headerHeight
+            + dividerHeight * 3
+            + primaryHeight
+            + branchHeight
+            + referencesHeight
+            + errorHeight
+    }
+
+    private var primaryActionCount: Int {
+        var count = 0
+        if !normalizedQuery.isEmpty, actionMatches("Fetch", aliases: ["fetch"]) { count += 1 }
+        if actionMatches("Update Project", aliases: ["update", "pull"]) { count += 1 }
+        if actionMatches("Commit", aliases: ["commit"]) { count += 1 }
+        if actionMatches("Push", aliases: ["push"]) { count += 1 }
+        return count
+    }
+
+    private var branchActionCount: Int {
+        var count = 0
+        if actionMatches("New Branch", aliases: ["new branch"]) { count += 1 }
+        if actionMatches(
+            "Checkout Tag or Revision",
+            aliases: ["checkout", "revision", "tag"]
+        ) { count += 1 }
+        return count
     }
 
     private var referenceContentHeight: CGFloat {
