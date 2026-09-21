@@ -9,6 +9,7 @@ struct EnhancedBranchPopover: View {
     @State private var query = ""
     @State private var collapsedGroups: Set<String> = []
     @State private var collapsedSections: Set<String> = []
+    @State private var hoveredReferenceID: String?
     @State private var dialog: BranchDialog?
     @State private var branchPendingDeletion: GitReference?
     @FocusState private var searchFocused: Bool
@@ -305,44 +306,7 @@ struct EnhancedBranchPopover: View {
     }
 
     private func referenceRow(_ reference: GitReference, level: Int) -> some View {
-        Menu {
-            Button("New Branch from '\(reference.shortName)'…") {
-                dialog = .newBranch(reference)
-            }
-            Button("Show Diff with Working Tree") {
-                git.compareWithWorkingTree(reference) { succeeded in
-                    if succeeded { dismiss() }
-                }
-            }
-            if let current = git.currentReference, current.id != reference.id {
-                Button("Compare with Current Branch") {
-                    git.compare(reference, with: current) { succeeded in
-                        if succeeded { dismiss() }
-                    }
-                }
-            }
-            if !reference.isCurrent {
-                Divider()
-                Button("Checkout") {
-                    git.checkout(reference) { succeeded in if succeeded { dismiss() } }
-                }
-            }
-            if reference.kind == .local {
-                Divider()
-                Button("Update") {
-                    git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
-                }
-                .disabled(!reference.isCurrent)
-                Button("Push…") {
-                    git.push(reference) { succeeded in if succeeded { dismiss() } }
-                }
-                if !reference.isCurrent {
-                    Button("Delete Branch", role: .destructive) {
-                        branchPendingDeletion = reference
-                    }
-                }
-            }
-        } label: {
+        ZStack {
             HStack(spacing: 7) {
                 Image(systemName: referenceIcon(reference))
                     .font(.system(size: 13, weight: reference.isCurrent ? .semibold : .regular))
@@ -368,12 +332,69 @@ struct EnhancedBranchPopover: View {
             .padding(.trailing, 13)
             .frame(height: 28)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .background(
+                hoveredReferenceID == reference.id
+                    ? Color.primary.opacity(0.075)
+                    : Color.clear
+            )
+
+            Menu {
+                Button("New Branch from '\(reference.shortName)'…") {
+                    dialog = .newBranch(reference)
+                }
+                Button("Show Diff with Working Tree") {
+                    git.compareWithWorkingTree(reference) { succeeded in
+                        if succeeded { dismiss() }
+                    }
+                }
+                if let current = git.currentReference, current.id != reference.id {
+                    Button("Compare with Current Branch") {
+                        git.compare(reference, with: current) { succeeded in
+                            if succeeded { dismiss() }
+                        }
+                    }
+                }
+                if !reference.isCurrent {
+                    Divider()
+                    Button("Checkout") {
+                        git.checkout(reference) { succeeded in if succeeded { dismiss() } }
+                    }
+                }
+                if reference.kind == .local {
+                    Divider()
+                    Button("Update") {
+                        git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
+                    }
+                    .disabled(!reference.isCurrent)
+                    Button("Push…") {
+                        git.push(reference) { succeeded in if succeeded { dismiss() } }
+                    }
+                    if !reference.isCurrent {
+                        Button("Delete Branch", role: .destructive) {
+                            branchPendingDeletion = reference
+                        }
+                    }
+                }
+            } label: {
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(reference.displayName)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .frame(maxWidth: .infinity)
         .disabled(git.isBusy)
+        .onHover { isHovered in
+            if isHovered {
+                hoveredReferenceID = reference.id
+            } else if hoveredReferenceID == reference.id {
+                hoveredReferenceID = nil
+            }
+        }
     }
 
     private func sectionHeader(_ title: String, id: String) -> some View {
