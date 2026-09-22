@@ -618,10 +618,10 @@ private final class BranchDropdownView: NSView {
             NSRect(origin: origin, size: panelSize),
             display: true
         )
-        // `orderFront`, not `makeKeyAndOrderFront`: the action window holds no
-        // text input, and taking key status from the list would only make
-        // AppKit re-evaluate the list's visibility.
-        actionPanel.orderFront(nil)
+        // Takes key status so the sheets this window presents (New Branch has
+        // a text field) receive keyboard input. Safe for the list: neither
+        // panel hides on deactivate any more, so losing key does not hide it.
+        actionPanel.makeKeyAndOrderFront(nil)
     }
 
     private func closeActions() {
