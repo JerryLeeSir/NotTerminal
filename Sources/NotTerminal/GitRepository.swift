@@ -38,9 +38,15 @@ struct GitReference: Identifiable, Equatable {
         return String(shortName[shortName.index(after: separator)...])
     }
 
+    /// The remote that owns this reference, or nil when it has none.
+    ///
+    /// Only remote-tracking refs carry a remote in their name. A local branch
+    /// can be configured to track another *local* branch, and falling back to
+    /// the first path component of that upstream would name a repository that
+    /// does not exist.
     var remoteName: String? {
         guard kind == .remote, let separator = shortName.firstIndex(of: "/") else {
-            return upstreamShortName?.split(separator: "/").first.map(String.init)
+            return nil
         }
         return String(shortName[..<separator])
     }
@@ -78,6 +84,9 @@ enum GitService {
         let stdout = Pipe()
         let stderr = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        // `core.quotepath=false` keeps non-ASCII paths readable in the diff
+        // sheet. Status output is read with `-z`, which is what actually
+        // guarantees unquoted paths, so this option is not load-bearing there.
         process.arguments = ["-C", directory.path, "-c", "core.quotepath=false"] + arguments
         process.standardOutput = stdout
         process.standardError = stderr
@@ -88,17 +97,56 @@ enum GitService {
             return GitCommandResult(output: "", error: error.localizedDescription, status: -1)
         }
 
+        // Both pipes must be drained concurrently. Reading stdout to EOF
+        // first deadlocks as soon as git fills the stderr pipe buffer while
+        // stdout is still open: git blocks writing stderr, this side blocks
+        // reading stdout, and neither ever finishes — leaving `isBusy` stuck
+        // true and the whole dropdown disabled.
+        let errorBox = DataBox()
+        let errorHandle = stderr.fileHandleForReading
+        let drained = DispatchGroup()
+        drained.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            errorBox.store(errorHandle.readDataToEndOfFile())
+            drained.leave()
+        }
         let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        drained.wait()
         process.waitUntilExit()
 
         return GitCommandResult(
             output: String(decoding: outputData, as: UTF8.self),
-            error: String(decoding: errorData, as: UTF8.self),
+            error: String(decoding: errorBox.value, as: UTF8.self),
             status: process.terminationStatus
         )
     }
 
+    private final class DataBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = Data()
+
+        func store(_ data: Data) {
+            lock.lock()
+            stored = data
+            lock.unlock()
+        }
+
+        var value: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+    }
+
+    /// Parses `git status --porcelain=v1 -z --branch`.
+    ///
+    /// `-z` is required rather than the newline form: without it git quotes
+    /// every path containing a space or a non-ASCII byte using C escapes, and
+    /// that quoted text is handed straight back to `git add -- <path>`, which
+    /// fails with "pathspec did not match any files". With `-z`, paths are
+    /// emitted verbatim, records are NUL-separated, and a rename/copy record
+    /// lists the destination first with the original path as the *following*
+    /// NUL-separated field.
     static func parseStatus(_ output: String) -> GitStatusSnapshot {
         var branch = ""
         var upstream: String?
@@ -106,31 +154,35 @@ enum GitService {
         var behind = 0
         var changes: [GitChange] = []
 
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true).map(String.init) {
-            if line.hasPrefix("## ") {
-                let description = String(line.dropFirst(3))
-                for prefix in ["No commits yet on ", "Initial commit on "]
-                    where description.hasPrefix(prefix) {
-                    branch = String(description.dropFirst(prefix.count))
-                    break
-                }
-                if !branch.isEmpty { continue }
-                let tracking = description.components(separatedBy: "...")
-                branch = tracking[0].components(separatedBy: " ").first ?? ""
-                if tracking.count > 1 {
-                    let upstreamDescription = tracking[1]
-                    upstream = upstreamDescription.components(separatedBy: " ").first
-                    ahead = trackingCount(named: "ahead", in: upstreamDescription)
-                    behind = trackingCount(named: "behind", in: upstreamDescription)
-                }
+        let records = output.split(separator: "\0", omittingEmptySubsequences: true)
+        var index = 0
+        while index < records.count {
+            let record = records[index]
+            index += 1
+
+            if record.hasPrefix("## ") {
+                let parsed = parseBranchHeader(String(record.dropFirst(3)))
+                branch = parsed.branch
+                upstream = parsed.upstream
+                ahead = parsed.ahead
+                behind = parsed.behind
                 continue
             }
-            guard line.count >= 4 else { continue }
-            let characters = Array(line)
-            var path = String(characters.dropFirst(3))
-            if let range = path.range(of: " -> ") { path = String(path[range.upperBound...]) }
+            guard record.count >= 4 else { continue }
+            let characters = Array(record)
+            let indexStatus = characters[0]
+            let workTreeStatus = characters[1]
+
+            // Skip the paired "original path" field of a rename or copy.
+            if indexStatus == "R" || indexStatus == "C", index < records.count {
+                index += 1
+            }
             changes.append(
-                GitChange(indexStatus: characters[0], workTreeStatus: characters[1], path: path)
+                GitChange(
+                    indexStatus: indexStatus,
+                    workTreeStatus: workTreeStatus,
+                    path: String(characters.dropFirst(3))
+                )
             )
         }
         return GitStatusSnapshot(
@@ -142,7 +194,45 @@ enum GitService {
         )
     }
 
-    static func parseReferences(_ output: String, currentBranch: String) -> [GitReference] {
+    private static func parseBranchHeader(
+        _ description: String
+    ) -> (branch: String, upstream: String?, ahead: Int, behind: Int) {
+        // A detached HEAD reports `## HEAD (no branch)`. Passing "HEAD" off as
+        // a branch name would leave the repository with no current reference:
+        // every branch-relative action is disabled and no row can be marked
+        // current.
+        if description.hasPrefix("HEAD (no branch)") {
+            return (branch: "", upstream: nil, ahead: 0, behind: 0)
+        }
+        for prefix in ["No commits yet on ", "Initial commit on "]
+            where description.hasPrefix(prefix) {
+            return (branch: String(description.dropFirst(prefix.count)), upstream: nil, ahead: 0, behind: 0)
+        }
+        let tracking = description.components(separatedBy: "...")
+        let branch = tracking[0].components(separatedBy: " ").first ?? ""
+        guard tracking.count > 1 else {
+            return (branch: branch, upstream: nil, ahead: 0, behind: 0)
+        }
+        let upstreamDescription = tracking[1]
+        let upstream = upstreamDescription.components(separatedBy: " ").first
+        return (
+            branch: branch,
+            upstream: (upstream?.isEmpty == false) ? upstream : nil,
+            ahead: trackingCount(named: "ahead", in: upstreamDescription),
+            behind: trackingCount(named: "behind", in: upstreamDescription)
+        )
+    }
+
+    /// Parses `for-each-ref` output formatted as
+    /// `refname \t shortname \t upstream \t HEAD`.
+    ///
+    /// The checked-out branch is read from the trailing `%(HEAD)` field, which
+    /// git prints as `*`, rather than by comparing against a branch name
+    /// captured by an earlier `git status`. The dropdown refreshes refs when it
+    /// opens without re-running status, so an external `git switch` run in the
+    /// embedded terminal would otherwise leave the previous branch marked as
+    /// current — and the newly checked-out one missing from the list entirely.
+    static func parseReferences(_ output: String) -> [GitReference] {
         output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { rawLine in
             let fields = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 2 else { return nil }
@@ -160,12 +250,13 @@ enum GitService {
                 return nil
             }
             let upstream = fields.count > 2 && !fields[2].isEmpty ? fields[2] : nil
+            let isCurrent = kind == .local && fields.count > 3 && fields[3] == "*"
             return GitReference(
                 fullName: fullName,
                 shortName: shortName,
                 kind: kind,
                 upstreamShortName: upstream,
-                isCurrent: kind == .local && shortName == currentBranch
+                isCurrent: isCurrent
             )
         }
         .sorted { lhs, rhs in
@@ -243,7 +334,7 @@ final class GitRepository: ObservableObject {
         completion: (() -> Void)? = nil
     ) {
         let preservedMessage = preservingMessage ? message : nil
-        run(["status", "--porcelain=v1", "--branch"]) { [weak self] result in
+        run(["status", "--porcelain=v1", "-z", "--branch"]) { [weak self] result in
             guard let self else { return }
             self.isRepository = result.status == 0
             if result.status == 0 {
@@ -255,6 +346,7 @@ final class GitRepository: ObservableObject {
                 self.changes = status.changes
                 self.message = preservedMessage
                 self.refreshBranches(completion: completion)
+                self.clearRecentReferencesIfUnavailable()
             } else {
                 self.branch = ""
                 self.upstream = nil
@@ -271,7 +363,7 @@ final class GitRepository: ObservableObject {
     func refreshBranches(completion: (() -> Void)? = nil) {
         run([
             "for-each-ref",
-            "--format=%(refname)%09%(refname:short)%09%(upstream:short)",
+            "--format=%(refname)%09%(refname:short)%09%(upstream:short)%09%(HEAD)",
             "refs/heads",
             "refs/remotes",
             "refs/tags",
@@ -283,7 +375,7 @@ final class GitRepository: ObservableObject {
                 completion?()
                 return
             }
-            self.references = GitService.parseReferences(result.output, currentBranch: self.branch)
+            self.references = GitService.parseReferences(result.output)
             completion?()
         }
     }
@@ -298,11 +390,26 @@ final class GitRepository: ObservableObject {
 
     func push(_ reference: GitReference, completion: ((Bool) -> Void)? = nil) {
         guard reference.kind == .local else { return }
-        if reference.isCurrent, reference.upstreamShortName != nil {
+        // Only a *remote-tracking* upstream lets a bare `git push` resolve the
+        // destination itself. A local branch configured to track another local
+        // branch satisfies `upstreamShortName != nil` but has no remote behind
+        // it, so the shortcut would run `git push` against nothing.
+        if reference.isCurrent,
+           let upstream = reference.upstreamShortName,
+           references.contains(where: { $0.kind == .remote && $0.shortName == upstream }) {
             perform(["push"], completion: completion)
             return
         }
-        let remote = reference.remoteName ?? "origin"
+        // `--set-upstream` resolves its remote by name, so it has to be a
+        // remote that exists. Take it from the branch's upstream when that
+        // upstream is remote-tracking; a branch tracking another *local* branch
+        // has no remote in its configuration to read, so fall back to the
+        // conventional default rather than inventing one from the upstream name.
+        let remote = reference.upstreamShortName
+            .flatMap { upstream in
+                references.first { $0.kind == .remote && $0.shortName == upstream }?.remoteName
+            }
+            ?? "origin"
         perform(["push", "--set-upstream", remote, reference.shortName], completion: completion)
     }
 
@@ -417,6 +524,18 @@ final class GitRepository: ObservableObject {
         recentReferenceIDs.insert(reference.id, at: 0)
         recentReferenceIDs = Array(recentReferenceIDs.prefix(6))
         UserDefaults.standard.set(recentReferenceIDs, forKey: recentDefaultsKey)
+    }
+
+    /// Recents are persisted per directory path, so a path that used to hold a
+    /// repository can be reused by an unrelated project. Without this, ids
+    /// from the old repository would resurface as dead "Recent" entries the
+    /// moment a new repository appeared at the same location.
+    private func clearRecentReferencesIfUnavailable() {
+        let available = Set(references.map(\.id))
+        let live = recentReferenceIDs.filter { available.contains($0) }
+        guard live.count != recentReferenceIDs.count else { return }
+        recentReferenceIDs = live
+        UserDefaults.standard.set(live, forKey: recentDefaultsKey)
     }
 
     private func perform(_ arguments: [String], completion: ((Bool) -> Void)? = nil) {

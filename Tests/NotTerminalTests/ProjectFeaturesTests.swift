@@ -52,7 +52,7 @@ final class ProjectFeaturesTests: XCTestCase {
 
     func testGitStatusParserSeparatesIndexAndWorkTreeChanges() {
         let parsed = GitService.parseStatus(
-            "## feature/editor...origin/feature/editor [ahead 2, behind 1]\nM  staged.swift\n M changed.swift\n?? new.swift\n"
+            "## feature/editor...origin/feature/editor [ahead 2, behind 1]\0M  staged.swift\0 M changed.swift\0?? new.swift\0"
         )
 
         XCTAssertEqual(parsed.branch, "feature/editor")
@@ -67,6 +67,61 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertEqual(parsed.changes[2].badge, "U")
     }
 
+    func testGitStatusParserKeepsPathsWithSpacesVerbatim() {
+        // `-z` output is unquoted. The newline form would render these as
+        // "my report.txt" with literal quotes, and that quoted string was being
+        // passed back to `git add --`, which rejects it as a pathspec.
+        let parsed = GitService.parseStatus(
+            "## main\0?? my report.txt\0 M spaced name.swift\0"
+        )
+
+        XCTAssertEqual(parsed.changes.map(\.path), ["my report.txt", "spaced name.swift"])
+        XCTAssertFalse(parsed.changes.contains { $0.path.contains("\"") })
+    }
+
+    func testGitStatusParserUsesRenameDestinationAndSkipsItsSourceField() {
+        // A rename record is the status pair + destination, then the original
+        // path as a separate NUL-separated field.
+        let parsed = GitService.parseStatus("## main\0R  renamed file.txt\0old file.txt\0?? plain.txt\0")
+
+        XCTAssertEqual(parsed.changes.count, 2)
+        XCTAssertEqual(parsed.changes[0].path, "renamed file.txt")
+        XCTAssertEqual(parsed.changes[0].badge, "R")
+        XCTAssertEqual(parsed.changes[1].path, "plain.txt")
+    }
+
+    func testGitStatusParserTreatsDetachedHeadAsNoBranch() {
+        // Reporting "HEAD" as a branch name leaves the repository with no
+        // current reference, disabling every branch-relative action.
+        let parsed = GitService.parseStatus("## HEAD (no branch)\0")
+
+        XCTAssertEqual(parsed.branch, "")
+        XCTAssertNil(parsed.upstream)
+        XCTAssertEqual(parsed.ahead, 0)
+        XCTAssertEqual(parsed.behind, 0)
+        XCTAssertTrue(parsed.changes.isEmpty)
+    }
+
+    func testGitStatusParserReportsBehindAndDivergence() {
+        let behind = GitService.parseStatus("## main...origin/main [behind 1]\0")
+        XCTAssertEqual(behind.behind, 1)
+        XCTAssertEqual(behind.ahead, 0)
+        XCTAssertEqual(behind.upstream, "origin/main")
+
+        let diverged = GitService.parseStatus("## main...origin/main [ahead 1, behind 1]\0")
+        XCTAssertEqual(diverged.ahead, 1)
+        XCTAssertEqual(diverged.behind, 1)
+        XCTAssertEqual(diverged.upstream, "origin/main")
+    }
+
+    func testGitStatusParserHandlesRepositoryWithoutCommits() {
+        let parsed = GitService.parseStatus("## No commits yet on main\0?? first.txt\0")
+
+        XCTAssertEqual(parsed.branch, "main")
+        XCTAssertNil(parsed.upstream)
+        XCTAssertEqual(parsed.changes.map(\.path), ["first.txt"])
+    }
+
     func testGitBranchParserSplitsLocalAndRemoteAndSkipsHead() {
         let parsed = GitService.parseBranches(
             "refs/heads/main\nrefs/heads/feature/editor\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main\n"
@@ -78,12 +133,11 @@ final class ProjectFeaturesTests: XCTestCase {
 
     func testGitReferenceParserIncludesUpstreamTagsAndCurrentBranch() {
         let parsed = GitService.parseReferences(
-            "refs/heads/main\tmain\torigin/main\n"
-                + "refs/heads/feature/editor\tfeature/editor\t\n"
-                + "refs/remotes/origin/HEAD\torigin/HEAD\t\n"
-                + "refs/remotes/origin/main\torigin/main\t\n"
-                + "refs/tags/v0.1\tv0.1\t\n",
-            currentBranch: "main"
+            "refs/heads/main\tmain\torigin/main\t*\n"
+                + "refs/heads/feature/editor\tfeature/editor\t\t \n"
+                + "refs/remotes/origin/HEAD\torigin/HEAD\t\t\n"
+                + "refs/remotes/origin/main\torigin/main\t\t\n"
+                + "refs/tags/v0.1\tv0.1\t\t\n"
         )
 
         XCTAssertEqual(parsed.count, 4)
@@ -91,6 +145,37 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertEqual(parsed.first?.upstreamShortName, "origin/main")
         XCTAssertEqual(parsed.filter { $0.kind == .remote }.map(\.shortName), ["origin/main"])
         XCTAssertEqual(parsed.filter { $0.kind == .tag }.map(\.shortName), ["v0.1"])
+    }
+
+    func testGitReferenceParserTrustsHeadMarkerOverCachedBranchName() {
+        // What git reports wins: an external `git switch` must not leave the
+        // previous branch marked current, nor hide the new one.
+        let parsed = GitService.parseReferences(
+            "refs/heads/main\tmain\t\t \n"
+                + "refs/heads/feature\tfeature\t\t*\n"
+        )
+
+        XCTAssertEqual(parsed.filter(\.isCurrent).map(\.shortName), ["feature"])
+    }
+
+    func testRemoteNameIsOnlyDerivedFromRemoteTrackingRefs() {
+        let local = GitReference(
+            fullName: "refs/heads/topic",
+            shortName: "topic",
+            kind: .local,
+            upstreamShortName: "main",
+            isCurrent: false
+        )
+        XCTAssertNil(local.remoteName)
+
+        let remote = GitReference(
+            fullName: "refs/remotes/origin/topic",
+            shortName: "origin/topic",
+            kind: .remote,
+            upstreamShortName: nil,
+            isCurrent: false
+        )
+        XCTAssertEqual(remote.remoteName, "origin")
     }
 
     func testGitRepositoryCreatesChecksOutAndDeletesBranch() async throws {
@@ -172,13 +257,89 @@ final class ProjectFeaturesTests: XCTestCase {
 
         let result = GitService.run(
             directory: directory,
-            arguments: ["status", "--porcelain=v1", "--branch"]
+            arguments: ["status", "--porcelain=v1", "-z", "--branch"]
         )
         let status = GitService.parseStatus(result.output)
 
         XCTAssertEqual(result.status, 0)
         XCTAssertEqual(status.changes.first?.path, "note.txt")
         XCTAssertEqual(status.changes.first?.badge, "U")
+    }
+
+    func testGitRepositoryTracksDetachedHeadAndExternalBranchSwitches() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try initializeRepository(at: directory, branch: "main")
+        _ = GitService.run(directory: directory, arguments: ["branch", "other"])
+
+        let repository = GitRepository(directory: directory)
+        await refresh(repository)
+        XCTAssertEqual(repository.branch, "main")
+        XCTAssertEqual(repository.currentReference?.shortName, "main")
+
+        // Switch outside the app, the way the embedded terminal would, then
+        // refresh only the refs — the path taken when the dropdown opens.
+        _ = GitService.run(directory: directory, arguments: ["switch", "--quiet", "other"])
+        await refreshBranches(repository)
+
+        XCTAssertEqual(repository.currentReference?.shortName, "other")
+        XCTAssertEqual(repository.localReferences.filter(\.isCurrent).map(\.shortName), ["other"])
+        XCTAssertTrue(repository.references.contains { $0.shortName == "other" })
+
+        // A detached HEAD has no current branch at all, but must not claim
+        // "HEAD" is one, and every ref has to remain listed.
+        _ = GitService.run(directory: directory, arguments: ["switch", "--quiet", "--detach", "HEAD"])
+        await refresh(repository)
+
+        XCTAssertEqual(repository.branch, "")
+        XCTAssertNil(repository.currentReference)
+        XCTAssertFalse(repository.localReferences.contains { $0.isCurrent })
+        XCTAssertTrue(repository.references.contains { $0.shortName == "other" })
+    }
+
+    func testGitRepositoryStagesFilesWhosePathsNeedQuoting() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try initializeRepository(at: directory, branch: "main")
+
+        let fileName = "my report.txt"
+        try "draft\n".write(
+            to: directory.appendingPathComponent(fileName),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repository = GitRepository(directory: directory)
+        await refresh(repository)
+
+        guard let change = repository.changes.first(where: { $0.path == fileName }) else {
+            return XCTFail("expected an unquoted change for \(fileName), got \(repository.changes.map(\.path))")
+        }
+        repository.stage(change)
+
+        await waitUntil { !repository.isBusy && repository.changes.allSatisfy(\.isStaged) }
+        XCTAssertTrue(
+            repository.changes.allSatisfy(\.isStaged),
+            "`git add -- \(change.path)` should have staged the file, changes: \(repository.changes.map(\.path))"
+        )
+    }
+
+    func testGitRepositoryRefreshesRefsWithoutRerunningStatus() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try initializeRepository(at: directory, branch: "main")
+
+        let repository = GitRepository(directory: directory)
+        await refresh(repository)
+        XCTAssertEqual(repository.references.filter(\.isCurrent).map(\.shortName), ["main"])
+
+        _ = GitService.run(directory: directory, arguments: ["switch", "--quiet", "-c", "solo"])
+        await refreshBranches(repository)
+
+        // Refreshing refs alone must pick up a branch created behind the app's
+        // back — `branch` is intentionally left stale here.
+        XCTAssertEqual(repository.currentReference?.shortName, "solo")
+        XCTAssertTrue(repository.references.contains { $0.shortName == "solo" })
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -194,6 +355,54 @@ final class ProjectFeaturesTests: XCTestCase {
         await withCheckedContinuation { continuation in
             operation { continuation.resume(returning: $0) }
         }
+    }
+
+    private func refresh(_ repository: GitRepository) async {
+        await withCheckedContinuation { continuation in
+            repository.refresh { continuation.resume() }
+        }
+    }
+
+    private func refreshBranches(_ repository: GitRepository) async {
+        await withCheckedContinuation { continuation in
+            repository.refreshBranches { continuation.resume() }
+        }
+    }
+
+    /// `stage` and friends report through `@Published` state rather than a
+    /// completion handler, so poll until the repository settles.
+    private func waitUntil(
+        timeout: TimeInterval = 5,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    private func initializeRepository(at directory: URL, branch: String) throws {
+        XCTAssertEqual(
+            GitService.run(directory: directory, arguments: ["init", "--quiet", "-b", branch]).status,
+            0
+        )
+        try "initial\n".write(
+            to: directory.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        XCTAssertEqual(GitService.run(directory: directory, arguments: ["add", "README.md"]).status, 0)
+        XCTAssertEqual(
+            GitService.run(
+                directory: directory,
+                arguments: [
+                    "-c", "user.name=NotTerminal Tests",
+                    "-c", "user.email=tests@example.invalid",
+                    "commit", "--quiet", "-m", "Initial",
+                ]
+            ).status,
+            0
+        )
     }
 
     private func currentBranch(in directory: URL) -> String {

@@ -9,7 +9,12 @@ struct EnhancedBranchPopover: View {
     @State private var query = ""
     @State private var collapsedGroups: Set<String> = []
     @State private var collapsedSections: Set<String> = []
-    @State private var hoveredReferenceID: String?
+    /// Identifies one *rendered row*, not just one reference. `GitReference.id`
+    /// is the full ref name, so a branch drawn in both "Recent" and "Local" (or
+    /// in "Remote", nested under its remote group) shares an id across sections
+    /// and would light up everywhere it appears at once. Each call site folds
+    /// its section into the row key so the highlight stays on one row.
+    @State private var hoveredRowID: String?
     @State private var dialog: BranchDialog?
     @State private var branchPendingDeletion: GitReference?
     @FocusState private var searchFocused: Bool
@@ -216,7 +221,9 @@ struct EnhancedBranchPopover: View {
                     sectionHeader("Recent", id: "recent")
                     if !collapsedSections.contains("recent") {
                         referenceTree(recentLocalReferences, idPrefix: "recent")
-                        ForEach(recentNonLocalReferences) { referenceRow($0, level: 0) }
+                        ForEach(recentNonLocalReferences) {
+                            referenceRow($0, level: 0, rowID: "recent:\($0.id)")
+                        }
                     }
                 }
 
@@ -226,13 +233,17 @@ struct EnhancedBranchPopover: View {
                     if !git.tagReferences.isEmpty {
                         sectionHeader("Tags", id: "tags")
                         if !collapsedSections.contains("tags") {
-                            ForEach(git.tagReferences) { referenceRow($0, level: 0) }
+                            ForEach(git.tagReferences) {
+                                referenceRow($0, level: 0, rowID: "tags:\($0.id)")
+                            }
                         }
                     }
                 } else {
                     sectionHeader("Search Results", id: "search")
                     if !collapsedSections.contains("search") {
-                        ForEach(filteredReferences) { referenceRow($0, level: 0) }
+                        ForEach(filteredReferences) {
+                            referenceRow($0, level: 0, rowID: "search:\($0.id)")
+                        }
                     }
                 }
             }
@@ -265,7 +276,9 @@ struct EnhancedBranchPopover: View {
     private func referenceTree(_ references: [GitReference], idPrefix: String) -> some View {
         ForEach(groupedBranchReferences(references, idPrefix: idPrefix)) { group in
             if group.title.isEmpty {
-                ForEach(group.references) { referenceRow($0, level: 0) }
+                ForEach(group.references) {
+                    referenceRow($0, level: 0, rowID: "\(idPrefix):\($0.id)")
+                }
             } else {
                 groupRow(group, icon: "folder")
             }
@@ -300,13 +313,23 @@ struct EnhancedBranchPopover: View {
             .buttonStyle(BranchHoverButtonStyle())
 
             if !collapsedGroups.contains(group.id) {
-                ForEach(group.references) { referenceRow($0, level: 1) }
+                ForEach(group.references) {
+                    referenceRow($0, level: 1, rowID: "\(group.id):\($0.id)")
+                }
             }
         }
     }
 
-    private func referenceRow(_ reference: GitReference, level: Int) -> some View {
-        ZStack {
+    private func referenceRow(
+        _ reference: GitReference,
+        level: Int,
+        rowID: String
+    ) -> some View {
+        // Gated on `isBusy` as well as in the tracking view: a pointer resting
+        // on a row when the flag flips would otherwise stay lit, and the row's
+        // menu is disabled for the duration.
+        let isHovered = !git.isBusy && hoveredRowID == rowID
+        return ZStack {
             HStack(spacing: 7) {
                 Image(systemName: referenceIcon(reference))
                     .font(.system(size: 13, weight: reference.isCurrent ? .semibold : .regular))
@@ -333,7 +356,7 @@ struct EnhancedBranchPopover: View {
             .frame(height: 28)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                hoveredReferenceID == reference.id
+                isHovered
                     ? Color.primary.opacity(0.075)
                     : Color.clear
             )
@@ -362,14 +385,20 @@ struct EnhancedBranchPopover: View {
                 }
                 if reference.kind == .local {
                     Divider()
-                    Button("Update") {
-                        git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
+                    // `updateCurrentBranch` pulls the checked-out branch, not
+                    // the row that was clicked, so name it for what it does and
+                    // offer it only where it applies.
+                    if reference.isCurrent {
+                        Button("Update Current Branch") {
+                            git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
+                        }
                     }
-                    .disabled(!reference.isCurrent)
-                    Button("Push…") {
+                    Button("Push '\(reference.shortName)'…") {
                         git.push(reference) { succeeded in if succeeded { dismiss() } }
                     }
+                    .help("Pushes the row's branch, not necessarily the one checked out.")
                     if !reference.isCurrent {
+                        Divider()
                         Button("Delete Branch", role: .destructive) {
                             branchPendingDeletion = reference
                         }
@@ -387,14 +416,21 @@ struct EnhancedBranchPopover: View {
             .accessibilityLabel(reference.displayName)
         }
         .frame(maxWidth: .infinity)
+        // Tracking is attached outside `.disabled`. An `NSTrackingArea` is
+        // purely geometric, so it keeps reporting while the row is disabled —
+        // and `.disabled` does reach the menu, so a hover highlight there would
+        // promise a click that does nothing. Gating it here keeps the highlight
+        // and the clickable area in agreement.
+        .background(
+            RowHoverTracking(
+                isEnabled: !git.isBusy,
+                onEnter: { hoveredRowID = rowID },
+                onExit: {
+                    if hoveredRowID == rowID { hoveredRowID = nil }
+                }
+            )
+        )
         .disabled(git.isBusy)
-        .onHover { isHovered in
-            if isHovered {
-                hoveredReferenceID = reference.id
-            } else if hoveredReferenceID == reference.id {
-                hoveredReferenceID = nil
-            }
-        }
     }
 
     private func sectionHeader(_ title: String, id: String) -> some View {
@@ -463,13 +499,25 @@ struct EnhancedBranchPopover: View {
         let referencesHeight = (!git.isRepository || filteredReferences.isEmpty)
             ? 120
             : referenceContentHeight
-        let errorHeight: CGFloat = git.message?.isEmpty == false ? 54 : 0
+        let errorHeight = errorBannerHeight
         return headerHeight
             + dividerHeight * 3
             + primaryHeight
             + branchHeight
             + referencesHeight
             + errorHeight
+    }
+
+    /// The banner is the last element in a scrolling panel, so under-sizing it
+    /// hides an error below the fold. Rather than a flat guess, estimate the
+    /// wrapped line count from the message: measured heights for this padding
+    /// and font are 33pt, 44pt and 57pt for the one, two and three lines the
+    /// banner allows.
+    private var errorBannerHeight: CGFloat {
+        guard let message = git.message, !message.isEmpty else { return 0 }
+        let charactersPerLine = 48
+        let lines = min(3, max(1, message.count / charactersPerLine + 1))
+        return 20 + CGFloat(lines) * 13
     }
 
     private var primaryActionCount: Int {
@@ -776,5 +824,57 @@ private struct BranchToolbarButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: 5)
             )
             .onHover { hovered = $0 }
+    }
+}
+
+/// AppKit-backed hover that fires across the view's entire bounds. SwiftUI's
+/// `.onHover` does not reliably fire over transparent (clear) pixels on
+/// macOS, so a row highlight driven by it only appears while the pointer is
+/// over drawn content (the branch text). An `NSTrackingArea` is geometric:
+/// it reports the whole row regardless of what is painted on it.
+private struct RowHoverTracking: NSViewRepresentable {
+    let isEnabled: Bool
+    let onEnter: () -> Void
+    let onExit: () -> Void
+
+    func makeNSView(context: Context) -> RowTrackingView {
+        let view = RowTrackingView()
+        view.isEnabled = isEnabled
+        view.onEnter = onEnter
+        view.onExit = onExit
+        return view
+    }
+
+    func updateNSView(_ view: RowTrackingView, context: Context) {
+        view.isEnabled = isEnabled
+        view.onEnter = onEnter
+        view.onExit = onExit
+    }
+
+    final class RowTrackingView: NSView {
+        var isEnabled = true
+        var onEnter: (() -> Void)?
+        var onExit: (() -> Void)?
+        private var trackingArea: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let trackingArea { removeTrackingArea(trackingArea) }
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            guard isEnabled else { return }
+            onEnter?()
+        }
+
+        override func mouseExited(with event: NSEvent) { onExit?() }
     }
 }

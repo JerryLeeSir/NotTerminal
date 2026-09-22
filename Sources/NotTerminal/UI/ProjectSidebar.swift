@@ -471,18 +471,31 @@ private final class BranchDropdownView: NSView {
 
     // MARK: - Presentation
 
+    /// Slack between the panel edge and the dropdown, reserved for the window
+    /// shadow. A shadow drawn inside a SwiftUI view is clipped away: the hosting
+    /// view's frame equals the panel's content rect, so anything painted outside
+    /// the content bounds never reaches the screen.
+    private static let shadowMargin: CGFloat = 16
+
     private func present(git: GitRepository) {
         guard panel == nil, let window else { return }
 
+        let margin = Self.shadowMargin
         let screen = window.screen ?? NSScreen.main
         let availableHeight = screen?.visibleFrame.height ?? 800
-        let maximumHeight = max(360, min(780, availableHeight - 12))
+        let maximumHeight = max(360, min(780, availableHeight - 12 - margin * 2))
         let hosting = makeHosting(git: git, maximumHeight: maximumHeight)
         let size = hosting.fittingSize
-        hosting.frame = NSRect(origin: .zero, size: size)
+        let panelSize = NSSize(width: size.width + margin * 2, height: size.height + margin * 2)
+        hosting.frame = NSRect(
+            x: margin,
+            y: margin,
+            width: size.width,
+            height: size.height
+        )
 
         let panel = BranchDropdownPanel(
-            contentRect: NSRect(origin: .zero, size: size),
+            contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -490,7 +503,9 @@ private final class BranchDropdownView: NSView {
         panel.contentView = hosting
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        // Let AppKit draw the shadow from the hosting view's alpha channel
+        // rather than compositing one inside a view that gets clipped.
+        panel.hasShadow = true
         panel.hidesOnDeactivate = true
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -500,19 +515,23 @@ private final class BranchDropdownView: NSView {
         let buttonRect = convert(bounds, to: nil)
         let screenOrigin = window.convertPoint(toScreen: buttonRect.origin)
 
-        var originX = screenOrigin.x
-        var originY = screenOrigin.y - size.height
+        // Align the dropdown itself (not the shadow slack) with the button.
+        var originX = screenOrigin.x - margin
+        var originY = screenOrigin.y - size.height - margin
         if let screen {
             let visibleFrame = screen.visibleFrame
             originY = max(originY, visibleFrame.minY)
             originX = max(originX, visibleFrame.minX)
-            if originX + size.width > visibleFrame.maxX {
-                originX = max(visibleFrame.maxX - size.width, visibleFrame.minX)
+            if originX + panelSize.width > visibleFrame.maxX {
+                originX = max(visibleFrame.maxX - panelSize.width, visibleFrame.minX)
+            }
+            if originY + panelSize.height > visibleFrame.maxY {
+                originY = max(visibleFrame.maxY - panelSize.height, visibleFrame.minY)
             }
         }
 
         panel.setFrame(
-            NSRect(x: originX, y: originY, width: size.width, height: size.height),
+            NSRect(x: originX, y: originY, width: panelSize.width, height: panelSize.height),
             display: true
         )
         panel.makeKeyAndOrderFront(nil)
@@ -544,7 +563,6 @@ private final class BranchDropdownView: NSView {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.22), radius: 18, y: 6)
             )
         )
     }
