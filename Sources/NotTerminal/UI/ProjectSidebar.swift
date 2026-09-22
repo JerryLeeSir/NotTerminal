@@ -450,6 +450,8 @@ private final class BranchDropdownView: NSView {
     var openCommit: (() -> Void)?
 
     private var panel: BranchDropdownPanel?
+    private var actionPanel: BranchDropdownPanel?
+    private var actionTarget: GitReference?
     private var mouseMonitor: Any?
     private var applicationDeactivationObserver: NSObjectProtocol?
 
@@ -459,6 +461,7 @@ private final class BranchDropdownView: NSView {
             NotificationCenter.default.removeObserver(applicationDeactivationObserver)
         }
         panel?.orderOut(nil)
+        actionPanel?.orderOut(nil)
     }
 
     func updatePresentation(isPresented: Bool, git: GitRepository) {
@@ -506,7 +509,11 @@ private final class BranchDropdownView: NSView {
         // Let AppKit draw the shadow from the hosting view's alpha channel
         // rather than compositing one inside a view that gets clipped.
         panel.hasShadow = true
-        panel.hidesOnDeactivate = true
+        // Dismissal is driven explicitly — the outside-click monitor and the
+        // `didResignActive` observer below — so the panel's lifetime does not
+        // depend on which of the two dropdown windows happens to hold key
+        // status. See the matching note on the action panel.
+        panel.hidesOnDeactivate = false
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = .popUpMenu
@@ -540,6 +547,89 @@ private final class BranchDropdownView: NSView {
         installApplicationDeactivationObserverIfNeeded()
     }
 
+    // MARK: - Second level
+
+    /// Opens the action window flush to the right of the list panel, vertically
+    /// aligned with the row that was clicked, so the list stays visible and
+    /// keeps showing which branch the actions belong to.
+    private func openActions(for reference: GitReference, rowRect: CGRect, git: GitRepository) {
+        closeActions()
+        guard let panel else { return }
+        actionTarget = reference
+
+        let margin = Self.shadowMargin
+        // Width comes from the longest action title, so the window hugs its
+        // content instead of guessing a fixed size.
+        let content = BranchActionPanel(
+            reference: reference,
+            git: git,
+            dismissAll: { [weak self] in
+                guard let self else { return }
+                self.closeActions()
+                self.dismiss()
+                self.onDismiss?()
+            },
+            closeActions: { [weak self] in self?.closeActions() }
+        )
+        let hosting = NSHostingView(
+            rootView: AnyView(
+                content
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                    }
+            )
+        )
+        let size = hosting.fittingSize
+        let panelSize = NSSize(width: size.width + margin * 2, height: size.height + margin * 2)
+        hosting.frame = NSRect(x: margin, y: margin, width: size.width, height: size.height)
+
+        let actionPanel = BranchDropdownPanel(
+            contentRect: NSRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        actionPanel.contentView = hosting
+        actionPanel.isOpaque = false
+        actionPanel.backgroundColor = .clear
+        actionPanel.hasShadow = true
+        // Deliberately NOT `hidesOnDeactivate`: with two windows open, an
+        // ordering change between them must not be able to hide one of them.
+        // Leaving the app is covered explicitly by the `didResignActive`
+        // observer and the outside-click monitor.
+        actionPanel.hidesOnDeactivate = false
+        actionPanel.isExcludedFromWindowsMenu = true
+        actionPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        actionPanel.level = .popUpMenu
+        self.actionPanel = actionPanel
+
+        let placement = ActionPanelPlacement(
+            listFrame: panel.frame,
+            rowRect: rowRect,
+            panelSize: panelSize,
+            margin: margin,
+            visibleFrame: (panel.screen ?? NSScreen.main)?.visibleFrame
+        )
+        let origin = placement.origin()
+        actionPanel.setFrame(
+            NSRect(origin: origin, size: panelSize),
+            display: true
+        )
+        // `orderFront`, not `makeKeyAndOrderFront`: the action window holds no
+        // text input, and taking key status from the list would only make
+        // AppKit re-evaluate the list's visibility.
+        actionPanel.orderFront(nil)
+    }
+
+    private func closeActions() {
+        actionPanel?.orderOut(nil)
+        actionPanel = nil
+        actionTarget = nil
+    }
+
     private func makeHosting(
         git: GitRepository,
         maximumHeight: CGFloat
@@ -549,6 +639,9 @@ private final class BranchDropdownView: NSView {
                 EnhancedBranchPopover(
                     git: git,
                     maximumHeight: maximumHeight,
+                    openActions: { [weak self] reference, rowRect in
+                        self?.openActions(for: reference, rowRect: rowRect, git: git)
+                    },
                     dismiss: { [weak self] in
                         guard let self else { return }
                         self.dismiss()
@@ -574,6 +667,7 @@ private final class BranchDropdownView: NSView {
             NotificationCenter.default.removeObserver(applicationDeactivationObserver)
         }
         applicationDeactivationObserver = nil
+        closeActions()
         panel?.orderOut(nil)
         panel = nil
     }
@@ -605,7 +699,12 @@ private final class BranchDropdownView: NSView {
     private func handleMouseEvent(_ event: NSEvent) -> NSEvent? {
         guard let panel, panel.isVisible else { return event }
         if event.window === panel { return event }
-        if event.window?.sheetParent === panel { return event }
+        // The second-level window belongs to the dropdown, so clicking it must
+        // not be treated as an outside click.
+        if let actionPanel, event.window === actionPanel { return event }
+        if event.window?.sheetParent === panel || event.window?.sheetParent === actionPanel {
+            return event
+        }
 
         if event.window === window {
             let point = convert(event.locationInWindow, from: nil)
@@ -615,6 +714,48 @@ private final class BranchDropdownView: NSView {
         dismiss()
         onDismiss?()
         return event
+    }
+}
+
+/// Where to park the second-level window so it sits flush beside the list,
+/// top-aligned with the row that was clicked. Pure so it can be tested without
+/// standing up windows.
+struct ActionPanelPlacement {
+    /// The list panel's frame, in screen coordinates, including its shadow slack.
+    let listFrame: NSRect
+    /// The clicked row, in the list window's own coordinates.
+    let rowRect: NSRect
+    /// The action panel's frame size, including its own shadow slack.
+    let panelSize: NSSize
+    /// Shadow slack insets, equal on both panels.
+    let margin: CGFloat
+    let visibleFrame: NSRect?
+
+    /// Gap between the two panels' *visible* edges. Each window's frame is
+    /// inflated by `margin` on every side, so the frames must overlap by
+    /// `2 * margin` minus this gap for the visible edges to nearly touch.
+    private static let gap: CGFloat = 4
+
+    func origin() -> NSPoint {
+        // Visible content of each window, in screen coordinates.
+        let listVisibleRight = listFrame.maxX - margin
+        let listVisibleLeft = listFrame.minX + margin
+        let rowTop = listFrame.minY + rowRect.maxY
+
+        var x = listVisibleRight + Self.gap - margin
+        // The action window's content starts `margin` above its frame origin,
+        // so back that out to top-align the content with the clicked row.
+        var y = rowTop - panelSize.height + margin
+
+        if let visibleFrame {
+            if x + panelSize.width - margin > visibleFrame.maxX {
+                // No room to the right: sit to the left of the list instead.
+                x = listVisibleLeft - Self.gap - panelSize.width + margin
+            }
+            x = max(x, visibleFrame.minX)
+            y = min(max(y, visibleFrame.minY), visibleFrame.maxY - panelSize.height)
+        }
+        return NSPoint(x: x, y: y)
     }
 }
 

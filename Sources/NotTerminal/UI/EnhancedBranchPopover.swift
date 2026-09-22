@@ -1,8 +1,13 @@
 import SwiftUI
 
+/// The branch list panel. Its second level lives in a separate window that the
+/// presenter places alongside this one, so this view only has to report which
+/// row was clicked and where that row sits.
 struct EnhancedBranchPopover: View {
     @ObservedObject var git: GitRepository
     let maximumHeight: CGFloat
+    /// Called with the clicked branch and its row rect in window coordinates.
+    let openActions: (GitReference, CGRect) -> Void
     let dismiss: () -> Void
     let openCommit: () -> Void
 
@@ -15,20 +20,12 @@ struct EnhancedBranchPopover: View {
     /// and would light up everywhere it appears at once. Each call site folds
     /// its section into the row key so the highlight stays on one row.
     @State private var hoveredRowID: String?
-    /// The branch whose second-level action page is open, if any.
-    @State private var actionTarget: GitReference?
     @State private var dialog: BranchDialog?
     @State private var branchPendingDeletion: GitReference?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        Group {
-            if let actionTarget {
-                branchActionPage(actionTarget)
-            } else {
-                branchListPage
-            }
-        }
+        branchListPage
         .frame(width: 360)
         .frame(height: min(maximumHeight, panelContentHeight))
         .background(Color(nsColor: .windowBackgroundColor))
@@ -72,99 +69,6 @@ struct EnhancedBranchPopover: View {
                     errorBanner(message)
                 }
             }
-        }
-    }
-
-    /// Second-level page for one branch, opened by clicking its row. Rows here
-    /// are plain buttons for the same reason the branch rows are: a SwiftUI
-    /// `Menu` inside this panel would neither span the row nor survive the
-    /// panel's outside-click monitor.
-    private func branchActionPage(_ reference: GitReference) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            backHeader(reference)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(branchActions(for: reference)) { action in
-                        if action.isSeparatorBefore {
-                            Divider().padding(.vertical, 4)
-                        }
-                        Button {
-                            perform(action, on: reference)
-                        } label: {
-                            Text(action.title)
-                                .font(.system(size: 13.5))
-                                .foregroundStyle(action.isDestructive ? Color.red : Color.primary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .padding(.horizontal, 14)
-                                .frame(height: 28)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(BranchHoverButtonStyle(cornerRadius: 0))
-                        .disabled(!action.isEnabled || git.isBusy)
-                    }
-                    if let message = git.message, !message.isEmpty {
-                        errorBanner(message)
-                    }
-                }
-                .padding(.vertical, 7)
-            }
-        }
-    }
-
-    private func backHeader(_ reference: GitReference) -> some View {
-        Button {
-            actionTarget = nil
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 12)
-                Image(systemName: referenceIcon(reference))
-                    .font(.system(size: 13))
-                    .foregroundStyle(referenceIconColor(reference))
-                Text(reference.shortName)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                Text("Actions")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(BranchHoverButtonStyle(cornerRadius: 0))
-        .help("Back to branches")
-    }
-
-    private func branchActions(for reference: GitReference) -> [BranchAction] {
-        BranchActions.list(for: reference, current: git.currentReference)
-    }
-
-    private func perform(_ action: BranchAction, on reference: GitReference) {
-        switch action.id {
-        case "checkout":
-            git.checkout(reference) { succeeded in if succeeded { dismiss() } }
-        case "newBranch":
-            dialog = .newBranch(reference)
-        case "diffWorkingTree":
-            git.compareWithWorkingTree(reference) { succeeded in if succeeded { dismiss() } }
-        case "compare":
-            guard let current = git.currentReference else { return }
-            git.compare(reference, with: current) { succeeded in if succeeded { dismiss() } }
-        case "update":
-            git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
-        case "push":
-            git.push(reference) { succeeded in if succeeded { dismiss() } }
-        case "delete":
-            branchPendingDeletion = reference
-        default:
-            break
         }
     }
 
@@ -439,9 +343,11 @@ struct EnhancedBranchPopover: View {
         // a narrow strip of the row was clickable — and an earlier attempt to
         // widen it with a transparent `Menu` overlay swallowed the clicks
         // entirely. A `Button` stays in SwiftUI, where `contentShape` gives the
-        // whole row to the hit test; it opens the second-level action page.
+        // whole row to the hit test.
         return Button {
-            actionTarget = reference
+            if let frame = RowFrames.shared.frame(for: rowID) {
+                openActions(reference, frame)
+            }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: referenceIcon(reference))
@@ -478,6 +384,7 @@ struct EnhancedBranchPopover: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .accessibilityLabel(reference.displayName)
+        .background(RowFrameReporter(rowID: rowID))
         // Tracking is attached outside `.disabled`. An `NSTrackingArea` is
         // purely geometric, so it keeps reporting while the row is disabled —
         // and `.disabled` does reach the menu, so a hover highlight there would
@@ -552,12 +459,6 @@ struct EnhancedBranchPopover: View {
     }
 
     private var panelContentHeight: CGFloat {
-        if let actionTarget {
-            let separators = branchActions(for: actionTarget).filter(\.isSeparatorBefore).count
-            let rows = branchActions(for: actionTarget).count
-            let banner = errorBannerHeight
-            return 44 + 1 + 14 + CGFloat(rows) * 28 + CGFloat(separators) * 9 + banner
-        }
         let headerHeight: CGFloat = 48
         let dividerHeight: CGFloat = 1
         let actionRowHeight: CGFloat = 30
@@ -728,6 +629,198 @@ struct EnhancedBranchPopover: View {
         return reference.shortName.split(separator: "/").last.map(String.init)
             ?? reference.displayName
     }
+}
+
+/// The second level: one branch's actions. Self-contained, including its own
+/// confirmation and dialogs, so it can live in a window of its own beside the
+/// list — the list must stay visible, since it shows which branch was clicked.
+struct BranchActionPanel: View {
+    let reference: GitReference
+    @ObservedObject var git: GitRepository
+    /// Close both levels, e.g. after a successful checkout.
+    let dismissAll: () -> Void
+    /// Close only this level, leaving the list open.
+    let closeActions: () -> Void
+
+    @State private var dialog: BranchDialog?
+    @State private var branchPendingDeletion: GitReference?
+    @State private var highlightedActionID: String?
+
+    private var actions: [BranchAction] {
+        BranchActions.list(for: reference, current: git.currentReference)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            ForEach(actions) { action in
+                if action.isSeparatorBefore {
+                    Divider().padding(.vertical, 4)
+                }
+                Button {
+                    perform(action)
+                } label: {
+                    Text(action.title)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(action.isDestructive ? Color.red : Color.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 14)
+                        .frame(height: 28)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            !git.isBusy && highlightedActionID == action.id
+                                ? Color.primary.opacity(0.075)
+                                : Color.clear
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!action.isEnabled || git.isBusy)
+                .background(
+                    RowHoverTracking(
+                        isEnabled: !git.isBusy,
+                        onEnter: { highlightedActionID = action.id },
+                        onExit: { if highlightedActionID == action.id { highlightedActionID = nil } }
+                    )
+                )
+            }
+        }
+        .sheet(item: $dialog) { dialog in
+            BranchOperationDialog(dialog: dialog, git: git)
+        }
+        .alert(
+            "Delete branch?",
+            isPresented: Binding(
+                get: { branchPendingDeletion != nil },
+                set: { if !$0 { branchPendingDeletion = nil } }
+            ),
+            presenting: branchPendingDeletion
+        ) { target in
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                git.deleteBranch(target) { succeeded in
+                    if succeeded { dismissAll() }
+                }
+            }
+        } message: { target in
+            Text("Delete the local branch “\(target.shortName)”? Git will refuse if it contains unmerged work.")
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 9) {
+            Button(action: closeActions) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Close actions")
+
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Text(reference.shortName)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 6)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+    }
+
+    /// Height of the whole panel, for sizing its window.
+    var contentHeight: CGFloat {
+        let separators = actions.filter(\.isSeparatorBefore).count
+        return 36 + 1 + CGFloat(actions.count) * 28 + CGFloat(separators) * 9
+    }
+
+    private func perform(_ action: BranchAction) {
+        switch action.id {
+        case "checkout":
+            git.checkout(reference) { succeeded in if succeeded { dismissAll() } }
+        case "newBranch":
+            dialog = .newBranch(reference)
+        case "diffWorkingTree":
+            git.compareWithWorkingTree(reference) { succeeded in if succeeded { dismissAll() } }
+        case "compare":
+            guard let current = git.currentReference else { return }
+            git.compare(reference, with: current) { succeeded in if succeeded { dismissAll() } }
+        case "update":
+            git.updateCurrentBranch { succeeded in if succeeded { dismissAll() } }
+        case "push":
+            git.push(reference) { succeeded in if succeeded { dismissAll() } }
+        case "delete":
+            branchPendingDeletion = reference
+        default:
+            break
+        }
+    }
+}
+
+/// Reports one row's frame in window coordinates. An `NSTrackingArea` already
+/// gives us window-space geometry for hover, so the same approach is used here
+/// rather than converting SwiftUI coordinates by hand.
+private struct RowFrameReporter: NSViewRepresentable {
+    let rowID: String
+
+    func makeNSView(context: Context) -> ReporterView {
+        let view = ReporterView()
+        view.rowID = rowID
+        return view
+    }
+
+    func updateNSView(_ view: ReporterView, context: Context) {
+        view.rowID = rowID
+        view.report()
+    }
+
+    final class ReporterView: NSView {
+        var rowID = ""
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            report()
+        }
+
+        override func layout() {
+            super.layout()
+            report()
+        }
+
+        func report() {
+            guard window != nil, !rowID.isEmpty, !bounds.isEmpty else { return }
+            let frame = convert(bounds, to: nil)
+            // Deferred: this runs during layout, and mutating shared state
+            // synchronously from inside a layout pass invites re-entrancy.
+            DispatchQueue.main.async { [rowID] in
+                RowFrames.shared.record(frame, for: rowID)
+            }
+        }
+    }
+}
+
+/// Frames in window coordinates, keyed by row. Held outside SwiftUI state so
+/// recording them cannot trigger another render pass — publishing per-row
+/// geometry through `@State` would re-enter layout on every scroll frame.
+@MainActor
+final class RowFrames {
+    static let shared = RowFrames()
+    private(set) var frames: [String: CGRect] = [:]
+
+    func record(_ frame: CGRect, for rowID: String) {
+        frames[rowID] = frame
+    }
+
+    func frame(for rowID: String) -> CGRect? { frames[rowID] }
+    func clear() { frames.removeAll() }
 }
 
 /// One entry on a branch's second-level action page.
