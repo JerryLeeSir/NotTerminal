@@ -158,6 +158,53 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertEqual(parsed.filter(\.isCurrent).map(\.shortName), ["feature"])
     }
 
+    func testBranchActionListOffersCheckoutAndGuardsTheCurrentBranch() {
+        let current = GitReference(
+            fullName: "refs/heads/main", shortName: "main",
+            kind: .local, upstreamShortName: "origin/main", isCurrent: true
+        )
+        let other = GitReference(
+            fullName: "refs/heads/feature/music", shortName: "feature/music",
+            kind: .local, upstreamShortName: nil, isCurrent: false
+        )
+        let tag = GitReference(
+            fullName: "refs/tags/v2.2.1", shortName: "v2.2.1",
+            kind: .tag, upstreamShortName: nil, isCurrent: false
+        )
+
+        // Checkout must always be offered, disabled only where it is a no-op or
+        // impossible — it is the whole point of the menu.
+        let forOther = BranchActions.list(for: other, current: current)
+        let checkout = forOther.first { $0.id == "checkout" }
+        XCTAssertNotNil(checkout, "a non-current branch must offer Checkout")
+        XCTAssertEqual(checkout?.isEnabled, true)
+        XCTAssertEqual(checkout?.title, "Checkout 'feature/music'")
+
+        let forCurrent = BranchActions.list(for: current, current: current)
+        XCTAssertEqual(forCurrent.first { $0.id == "checkout" }?.isEnabled, false)
+        // Update pulls the checked-out branch, so only that row offers it.
+        XCTAssertNotNil(forCurrent.first { $0.id == "update" })
+        XCTAssertNil(forOther.first { $0.id == "update" })
+        // Delete is local-only and never offered for the checked-out branch.
+        XCTAssertNotNil(forOther.first { $0.id == "delete" })
+        XCTAssertNil(forCurrent.first { $0.id == "delete" })
+        XCTAssertNil(BranchActions.list(for: tag, current: current).first { $0.id == "delete" })
+
+        // Push is local-only (GitRepository.push guards on `kind == .local`),
+        // while the read-only actions apply to every kind.
+        for reference in [current, other, tag] {
+            let ids = BranchActions.list(for: reference, current: current).map(\.id)
+            XCTAssertTrue(ids.contains("newBranch"), "\(reference.shortName) should offer new branch")
+            XCTAssertTrue(ids.contains("diffWorkingTree"))
+        }
+        XCTAssertNil(BranchActions.list(for: tag, current: current).first { $0.id == "push" })
+        XCTAssertNotNil(BranchActions.list(for: other, current: current).first { $0.id == "push" })
+
+        // Detached HEAD: nothing is current, so Checkout stays available.
+        let detached = BranchActions.list(for: other, current: nil)
+        XCTAssertEqual(detached.first { $0.id == "checkout" }?.isEnabled, false)
+    }
+
     func testRemoteNameIsOnlyDerivedFromRemoteTrackingRefs() {
         let local = GitReference(
             fullName: "refs/heads/topic",

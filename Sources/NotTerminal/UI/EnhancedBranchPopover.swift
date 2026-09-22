@@ -15,23 +15,18 @@ struct EnhancedBranchPopover: View {
     /// and would light up everywhere it appears at once. Each call site folds
     /// its section into the row key so the highlight stays on one row.
     @State private var hoveredRowID: String?
+    /// The branch whose second-level action page is open, if any.
+    @State private var actionTarget: GitReference?
     @State private var dialog: BranchDialog?
     @State private var branchPendingDeletion: GitReference?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                searchBar
-                Divider()
-                primaryActions
-                Divider()
-                branchActions
-                Divider()
-                referenceList
-                if let message = git.message, !message.isEmpty {
-                    errorBanner(message)
-                }
+        Group {
+            if let actionTarget {
+                branchActionPage(actionTarget)
+            } else {
+                branchListPage
             }
         }
         .frame(width: 360)
@@ -60,6 +55,116 @@ struct EnhancedBranchPopover: View {
             }
         } message: { reference in
             Text("Delete the local branch “\(reference.shortName)”? Git will refuse if it contains unmerged work.")
+        }
+    }
+
+    private var branchListPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                searchBar
+                Divider()
+                primaryActions
+                Divider()
+                branchActions
+                Divider()
+                referenceList
+                if let message = git.message, !message.isEmpty {
+                    errorBanner(message)
+                }
+            }
+        }
+    }
+
+    /// Second-level page for one branch, opened by clicking its row. Rows here
+    /// are plain buttons for the same reason the branch rows are: a SwiftUI
+    /// `Menu` inside this panel would neither span the row nor survive the
+    /// panel's outside-click monitor.
+    private func branchActionPage(_ reference: GitReference) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            backHeader(reference)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(branchActions(for: reference)) { action in
+                        if action.isSeparatorBefore {
+                            Divider().padding(.vertical, 4)
+                        }
+                        Button {
+                            perform(action, on: reference)
+                        } label: {
+                            Text(action.title)
+                                .font(.system(size: 13.5))
+                                .foregroundStyle(action.isDestructive ? Color.red : Color.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, 14)
+                                .frame(height: 28)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(BranchHoverButtonStyle(cornerRadius: 0))
+                        .disabled(!action.isEnabled || git.isBusy)
+                    }
+                    if let message = git.message, !message.isEmpty {
+                        errorBanner(message)
+                    }
+                }
+                .padding(.vertical, 7)
+            }
+        }
+    }
+
+    private func backHeader(_ reference: GitReference) -> some View {
+        Button {
+            actionTarget = nil
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12)
+                Image(systemName: referenceIcon(reference))
+                    .font(.system(size: 13))
+                    .foregroundStyle(referenceIconColor(reference))
+                Text(reference.shortName)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                Text("Actions")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(BranchHoverButtonStyle(cornerRadius: 0))
+        .help("Back to branches")
+    }
+
+    private func branchActions(for reference: GitReference) -> [BranchAction] {
+        BranchActions.list(for: reference, current: git.currentReference)
+    }
+
+    private func perform(_ action: BranchAction, on reference: GitReference) {
+        switch action.id {
+        case "checkout":
+            git.checkout(reference) { succeeded in if succeeded { dismiss() } }
+        case "newBranch":
+            dialog = .newBranch(reference)
+        case "diffWorkingTree":
+            git.compareWithWorkingTree(reference) { succeeded in if succeeded { dismiss() } }
+        case "compare":
+            guard let current = git.currentReference else { return }
+            git.compare(reference, with: current) { succeeded in if succeeded { dismiss() } }
+        case "update":
+            git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
+        case "push":
+            git.push(reference) { succeeded in if succeeded { dismiss() } }
+        case "delete":
+            branchPendingDeletion = reference
+        default:
+            break
         }
     }
 
@@ -329,7 +434,15 @@ struct EnhancedBranchPopover: View {
         // on a row when the flag flips would otherwise stay lit, and the row's
         // menu is disabled for the duration.
         let isHovered = !git.isBusy && hoveredRowID == rowID
-        return ZStack {
+        // A plain `Button`, not a `Menu`. SwiftUI's menu style puts a real
+        // AppKit popup button inside the row and sizes it to its text, so only
+        // a narrow strip of the row was clickable — and an earlier attempt to
+        // widen it with a transparent `Menu` overlay swallowed the clicks
+        // entirely. A `Button` stays in SwiftUI, where `contentShape` gives the
+        // whole row to the hit test; it opens the second-level action page.
+        return Button {
+            actionTarget = reference
+        } label: {
             HStack(spacing: 7) {
                 Image(systemName: referenceIcon(reference))
                     .font(.system(size: 13, weight: reference.isCurrent ? .semibold : .regular))
@@ -360,62 +473,11 @@ struct EnhancedBranchPopover: View {
                     ? Color.primary.opacity(0.075)
                     : Color.clear
             )
-
-            Menu {
-                Button("New Branch from '\(reference.shortName)'…") {
-                    dialog = .newBranch(reference)
-                }
-                Button("Show Diff with Working Tree") {
-                    git.compareWithWorkingTree(reference) { succeeded in
-                        if succeeded { dismiss() }
-                    }
-                }
-                if let current = git.currentReference, current.id != reference.id {
-                    Button("Compare with Current Branch") {
-                        git.compare(reference, with: current) { succeeded in
-                            if succeeded { dismiss() }
-                        }
-                    }
-                }
-                if !reference.isCurrent {
-                    Divider()
-                    Button("Checkout") {
-                        git.checkout(reference) { succeeded in if succeeded { dismiss() } }
-                    }
-                }
-                if reference.kind == .local {
-                    Divider()
-                    // `updateCurrentBranch` pulls the checked-out branch, not
-                    // the row that was clicked, so name it for what it does and
-                    // offer it only where it applies.
-                    if reference.isCurrent {
-                        Button("Update Current Branch") {
-                            git.updateCurrentBranch { succeeded in if succeeded { dismiss() } }
-                        }
-                    }
-                    Button("Push '\(reference.shortName)'…") {
-                        git.push(reference) { succeeded in if succeeded { dismiss() } }
-                    }
-                    .help("Pushes the row's branch, not necessarily the one checked out.")
-                    if !reference.isCurrent {
-                        Divider()
-                        Button("Delete Branch", role: .destructive) {
-                            branchPendingDeletion = reference
-                        }
-                    }
-                }
-            } label: {
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 28)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel(reference.displayName)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        .accessibilityLabel(reference.displayName)
         // Tracking is attached outside `.disabled`. An `NSTrackingArea` is
         // purely geometric, so it keeps reporting while the row is disabled —
         // and `.disabled` does reach the menu, so a hover highlight there would
@@ -490,6 +552,12 @@ struct EnhancedBranchPopover: View {
     }
 
     private var panelContentHeight: CGFloat {
+        if let actionTarget {
+            let separators = branchActions(for: actionTarget).filter(\.isSeparatorBefore).count
+            let rows = branchActions(for: actionTarget).count
+            let banner = errorBannerHeight
+            return 44 + 1 + 14 + CGFloat(rows) * 28 + CGFloat(separators) * 9 + banner
+        }
         let headerHeight: CGFloat = 48
         let dividerHeight: CGFloat = 1
         let actionRowHeight: CGFloat = 30
@@ -659,6 +727,76 @@ struct EnhancedBranchPopover: View {
         }
         return reference.shortName.split(separator: "/").last.map(String.init)
             ?? reference.displayName
+    }
+}
+
+/// One entry on a branch's second-level action page.
+struct BranchAction: Identifiable, Equatable {
+    let id: String
+    let title: String
+    var isEnabled = true
+    var isDestructive = false
+    var isSeparatorBefore = false
+}
+
+/// The actions offered for a branch. Kept apart from the view so the page and
+/// its tests read the same list.
+enum BranchActions {
+    static func list(for reference: GitReference, current: GitReference?) -> [BranchAction] {
+        let title = reference.shortName
+        var actions: [BranchAction] = [
+            BranchAction(
+                id: "checkout",
+                title: "Checkout '\(title)'",
+                // A no-op on the branch already checked out, and impossible
+                // with a detached HEAD, since `switch` needs somewhere to go.
+                isEnabled: !reference.isCurrent && current != nil
+            ),
+            BranchAction(
+                id: "newBranch",
+                title: "New Branch from '\(title)'…",
+                isSeparatorBefore: true
+            ),
+            BranchAction(id: "diffWorkingTree", title: "Show Diff with Working Tree"),
+        ]
+
+        if let current, current.id != reference.id {
+            actions.append(
+                BranchAction(id: "compare", title: "Compare '\(title)' with '\(current.shortName)'")
+            )
+        }
+
+        if reference.kind == .local {
+            // `updateCurrentBranch` pulls whatever is checked out, so it is
+            // only meaningful on the row that actually is.
+            if reference.isCurrent {
+                actions.append(
+                    BranchAction(
+                        id: "update",
+                        title: "Update '\(title)'…",
+                        isSeparatorBefore: true
+                    )
+                )
+            }
+            actions.append(
+                BranchAction(
+                    id: "push",
+                    title: "Push '\(title)'…",
+                    isSeparatorBefore: !reference.isCurrent
+                )
+            )
+            if !reference.isCurrent {
+                actions.append(
+                    BranchAction(
+                        id: "delete",
+                        title: "Delete Branch…",
+                        isDestructive: true,
+                        isSeparatorBefore: true
+                    )
+                )
+            }
+        }
+        return actions
     }
 }
 
