@@ -857,6 +857,14 @@ private struct RowHoverTracking: NSViewRepresentable {
         var onExit: (() -> Void)?
         private var trackingArea: NSTrackingArea?
 
+        /// This view is a geometric overlay, not a control. As a real `NSView`
+        /// it otherwise wins AppKit hit-testing across the entire row and
+        /// swallows the click before SwiftUI's `Menu` ever sees it, which makes
+        /// branch rows silently unclickable. Returning nil keeps it out of hit
+        /// testing; `NSTrackingArea` delivery is driven by geometry rather than
+        /// hit testing, so enter/exit still fire.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let trackingArea { removeTrackingArea(trackingArea) }
