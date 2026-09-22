@@ -509,11 +509,7 @@ private final class BranchDropdownView: NSView {
         // Let AppKit draw the shadow from the hosting view's alpha channel
         // rather than compositing one inside a view that gets clipped.
         panel.hasShadow = true
-        // Dismissal is driven explicitly — the outside-click monitor and the
-        // `didResignActive` observer below — so the panel's lifetime does not
-        // depend on which of the two dropdown windows happens to hold key
-        // status. See the matching note on the action panel.
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = .popUpMenu
@@ -596,11 +592,9 @@ private final class BranchDropdownView: NSView {
         actionPanel.isOpaque = false
         actionPanel.backgroundColor = .clear
         actionPanel.hasShadow = true
-        // Deliberately NOT `hidesOnDeactivate`: with two windows open, an
-        // ordering change between them must not be able to hide one of them.
-        // Leaving the app is covered explicitly by the `didResignActive`
-        // observer and the outside-click monitor.
-        actionPanel.hidesOnDeactivate = false
+        // Matches the list panel: both hide when the app loses focus, which is
+        // covered explicitly by the `didResignActive` observer too.
+        actionPanel.hidesOnDeactivate = true
         actionPanel.isExcludedFromWindowsMenu = true
         actionPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         actionPanel.level = .popUpMenu
@@ -698,22 +692,63 @@ private final class BranchDropdownView: NSView {
 
     private func handleMouseEvent(_ event: NSEvent) -> NSEvent? {
         guard let panel, panel.isVisible else { return event }
-        if event.window === panel { return event }
-        // The second-level window belongs to the dropdown, so clicking it must
-        // not be treated as an outside click.
-        if let actionPanel, event.window === actionPanel { return event }
-        if event.window?.sheetParent === panel || event.window?.sheetParent === actionPanel {
-            return event
+
+        let isInsideAnchor: Bool
+        if event.window === window {
+            isInsideAnchor = bounds.contains(convert(event.locationInWindow, from: nil))
+        } else {
+            isInsideAnchor = false
         }
 
-        if event.window === window {
-            let point = convert(event.locationInWindow, from: nil)
-            if bounds.contains(point) { return event }
-        }
+        let policy = OutsideClickPolicy(
+            listPanel: panel,
+            actionPanel: actionPanel,
+            anchorWindow: window,
+            isInsideAnchor: isInsideAnchor
+        )
+        guard policy.shouldDismiss(eventWindow: event.window) else { return event }
 
         dismiss()
         onDismiss?()
         return event
+    }
+}
+
+/// Decides whether a mouse-down closes the dropdown. Pulled out of the view so
+/// the nil-handling is testable: comparing optional windows with `===` treats
+/// two nils as equal, so a sheet of the *absent* second-level window would
+/// otherwise look like a click on the dropdown itself.
+struct OutsideClickPolicy {
+    let listPanel: NSWindow
+    let actionPanel: NSWindow?
+    /// The view the dropdown hangs off, in the app's main window.
+    let anchorWindow: NSWindow?
+    /// Whether the click landed within that view's bounds.
+    let isInsideAnchor: Bool
+
+    func shouldDismiss(eventWindow: NSWindow?) -> Bool {
+        if let eventWindow, belongsToDropdown(eventWindow) { return false }
+        // The button itself toggles the dropdown; let the event through.
+        if eventWindow === anchorWindow, isInsideAnchor { return false }
+        return true
+    }
+
+    /// Walks up from `window` through sheet and child relationships, so a sheet
+    /// or attached window of either panel counts as part of the dropdown.
+    private func belongsToDropdown(_ window: NSWindow) -> Bool {
+        var candidate: NSWindow? = window
+        // Bounded: window parent chains are shallow, and this guards against a
+        // malformed cycle turning an outside click into a hang.
+        for _ in 0..<8 {
+            guard let current = candidate else { return false }
+            if current === listPanel { return true }
+            // Explicit unwrap: `nil === nil` is true, so comparing optionals
+            // here would classify every plain window as belonging to the
+            // dropdown whenever the second level is closed.
+            if let actionPanel, current === actionPanel { return true }
+            candidate = current.sheetParent ?? current.parent
+        }
+        return false
     }
 }
 

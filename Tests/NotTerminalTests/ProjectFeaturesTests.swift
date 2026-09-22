@@ -251,6 +251,42 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(origin.x, 0)
     }
 
+    func testOutsideClickClosesTheDropdown() {
+        let main = NSWindow()
+        let list = NSWindow()
+        let actions = NSWindow()
+        // A real sheet of the list panel, so `sheetParent` is actually set —
+        // an unattached window would be an unrelated one.
+        let sheetOfList = NSWindow()
+        list.addChildWindow(sheetOfList, ordered: .above)
+
+        func policy(actionPanel: NSWindow?, isInsideAnchor: Bool = false) -> OutsideClickPolicy {
+            OutsideClickPolicy(
+                listPanel: list,
+                actionPanel: actionPanel,
+                anchorWindow: main,
+                isInsideAnchor: isInsideAnchor
+            )
+        }
+
+        // The bug this guards: with no second level open, `eventWindow?.sheetParent`
+        // is nil, and `nil === nil` is true — so a click in the main window looked
+        // like a click on the dropdown's own sheet and the dropdown never closed.
+        XCTAssertTrue(
+            policy(actionPanel: nil).shouldDismiss(eventWindow: main),
+            "clicking the app window with no second level open must close the dropdown"
+        )
+        XCTAssertTrue(policy(actionPanel: nil).shouldDismiss(eventWindow: nil))
+        XCTAssertTrue(policy(actionPanel: actions).shouldDismiss(eventWindow: main))
+
+        // Clicks that belong to the dropdown must not close it.
+        XCTAssertFalse(policy(actionPanel: nil).shouldDismiss(eventWindow: list))
+        XCTAssertFalse(policy(actionPanel: actions).shouldDismiss(eventWindow: actions))
+        XCTAssertFalse(policy(actionPanel: actions).shouldDismiss(eventWindow: sheetOfList))
+        // The branch button toggles the dropdown itself.
+        XCTAssertFalse(policy(actionPanel: nil, isInsideAnchor: true).shouldDismiss(eventWindow: main))
+    }
+
     func testRemoteNameIsOnlyDerivedFromRemoteTrackingRefs() {
         let local = GitReference(
             fullName: "refs/heads/topic",
