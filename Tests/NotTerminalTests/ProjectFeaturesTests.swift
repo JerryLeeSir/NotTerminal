@@ -205,49 +205,52 @@ final class ProjectFeaturesTests: XCTestCase {
         XCTAssertEqual(detached.first { $0.id == "checkout" }?.isEnabled, false)
     }
 
-    func testActionPanelSitsFlushBesideTheListAndTopAlignedWithTheRow() {
-        // Both windows carry `margin` of shadow slack on every side, so the
-        // placement has to compensate for it or the panels drift apart.
-        let margin: CGFloat = 16
-        let listFrame = NSRect(x: 400, y: 200, width: 360 + margin * 2, height: 500)
-        let panelSize = NSSize(width: 258 + margin * 2, height: 240 + margin * 2)
+    func testActionPanelSitsBesideTheListWithoutOverlapping() {
+        // Window frames equal their content, so these are real screen rects.
+        let listFrame = NSRect(x: 400, y: 200, width: 360, height: 500)
+        let panelSize = NSSize(width: 258, height: 240)
         let rowRect = NSRect(x: 0, y: 300, width: 360, height: 28)
 
         let origin = ActionPanelPlacement(
             listFrame: listFrame,
             rowRect: rowRect,
             panelSize: panelSize,
-            margin: margin,
             visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900)
         ).origin()
 
-        // Visible right edge of the list to visible left edge of the actions.
-        let gap = (origin.x + margin) - (listFrame.maxX - margin)
-        XCTAssertEqual(gap, 4, accuracy: 0.01, "panels should sit flush")
-
-        // Top of the action content aligned with the top of the clicked row.
-        let rowTop = listFrame.minY + rowRect.maxY
-        XCTAssertEqual(origin.y + panelSize.height - margin, rowTop, accuracy: 0.01)
+        let actionFrame = NSRect(origin: origin, size: panelSize)
+        XCTAssertFalse(
+            actionFrame.intersects(listFrame),
+            "the action panel must not cover the list: \(actionFrame) vs \(listFrame)"
+        )
+        XCTAssertEqual(
+            actionFrame.minX - listFrame.maxX,
+            ActionPanelPlacement.gap,
+            accuracy: 0.01,
+            "should sit just clear of the list"
+        )
+        // Top-aligned with the clicked row.
+        XCTAssertEqual(actionFrame.maxY, listFrame.minY + rowRect.maxY, accuracy: 0.01)
     }
 
     func testActionPanelFlipsToTheLeftWhenThereIsNoRoomOnTheRight() {
-        let margin: CGFloat = 16
-        let listFrame = NSRect(x: 500, y: 200, width: 360 + margin * 2, height: 500)
-        let panelSize = NSSize(width: 258 + margin * 2, height: 240 + margin * 2)
+        let listFrame = NSRect(x: 500, y: 200, width: 360, height: 500)
+        let panelSize = NSSize(width: 258, height: 240)
 
         let origin = ActionPanelPlacement(
             listFrame: listFrame,
             rowRect: NSRect(x: 0, y: 300, width: 360, height: 28),
             panelSize: panelSize,
-            margin: margin,
             visibleFrame: NSRect(x: 0, y: 0, width: 800, height: 900)
         ).origin()
 
-        // Compare visible edges, not frame edges: both frames include the
-        // shadow slack, so the frame overlaps the list even when the panels
-        // are flush.
-        let gap = (listFrame.minX + margin) - (origin.x + panelSize.width - margin)
-        XCTAssertEqual(gap, 4, accuracy: 0.01, "should sit flush to the left of the list")
+        let actionFrame = NSRect(origin: origin, size: panelSize)
+        XCTAssertFalse(actionFrame.intersects(listFrame), "must not overlap when flipped either")
+        XCTAssertEqual(
+            listFrame.minX - actionFrame.maxX,
+            ActionPanelPlacement.gap,
+            accuracy: 0.01
+        )
         XCTAssertGreaterThanOrEqual(origin.x, 0)
     }
 

@@ -474,28 +474,19 @@ private final class BranchDropdownView: NSView {
 
     // MARK: - Presentation
 
-    /// Slack between the panel edge and the dropdown, reserved for the window
-    /// shadow. A shadow drawn inside a SwiftUI view is clipped away: the hosting
-    /// view's frame equals the panel's content rect, so anything painted outside
-    /// the content bounds never reaches the screen.
-    private static let shadowMargin: CGFloat = 16
-
     private func present(git: GitRepository) {
         guard panel == nil, let window else { return }
 
-        let margin = Self.shadowMargin
         let screen = window.screen ?? NSScreen.main
         let availableHeight = screen?.visibleFrame.height ?? 800
-        let maximumHeight = max(360, min(780, availableHeight - 12 - margin * 2))
+        let maximumHeight = max(360, min(780, availableHeight - 24))
         let hosting = makeHosting(git: git, maximumHeight: maximumHeight)
-        let size = hosting.fittingSize
-        let panelSize = NSSize(width: size.width + margin * 2, height: size.height + margin * 2)
-        hosting.frame = NSRect(
-            x: margin,
-            y: margin,
-            width: size.width,
-            height: size.height
-        )
+        // The window's frame is exactly its content. The shadow comes from
+        // AppKit's `hasShadow`, which the window server draws outside the frame,
+        // so reserving slack for it only inflates the window and makes two
+        // side-by-side panels' frames overlap.
+        let panelSize = hosting.fittingSize
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
 
         let panel = BranchDropdownPanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
@@ -518,9 +509,9 @@ private final class BranchDropdownView: NSView {
         let buttonRect = convert(bounds, to: nil)
         let screenOrigin = window.convertPoint(toScreen: buttonRect.origin)
 
-        // Align the dropdown itself (not the shadow slack) with the button.
-        var originX = screenOrigin.x - margin
-        var originY = screenOrigin.y - size.height - margin
+        // Drop the panel's top-left corner onto the button's.
+        var originX = screenOrigin.x
+        var originY = screenOrigin.y - panelSize.height
         if let screen {
             let visibleFrame = screen.visibleFrame
             originY = max(originY, visibleFrame.minY)
@@ -553,7 +544,6 @@ private final class BranchDropdownView: NSView {
         guard let panel else { return }
         actionTarget = reference
 
-        let margin = Self.shadowMargin
         // Width comes from the longest action title, so the window hugs its
         // content instead of guessing a fixed size.
         let content = BranchActionPanel(
@@ -578,9 +568,8 @@ private final class BranchDropdownView: NSView {
                     }
             )
         )
-        let size = hosting.fittingSize
-        let panelSize = NSSize(width: size.width + margin * 2, height: size.height + margin * 2)
-        hosting.frame = NSRect(x: margin, y: margin, width: size.width, height: size.height)
+        let panelSize = hosting.fittingSize
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
 
         let actionPanel = BranchDropdownPanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
@@ -604,7 +593,6 @@ private final class BranchDropdownView: NSView {
             listFrame: panel.frame,
             rowRect: rowRect,
             panelSize: panelSize,
-            margin: margin,
             visibleFrame: (panel.screen ?? NSScreen.main)?.visibleFrame
         )
         let origin = placement.origin()
@@ -613,8 +601,7 @@ private final class BranchDropdownView: NSView {
             display: true
         )
         // Takes key status so the sheets this window presents (New Branch has
-        // a text field) receive keyboard input. Safe for the list: neither
-        // panel hides on deactivate any more, so losing key does not hide it.
+        // a text field) receive keyboard input.
         actionPanel.makeKeyAndOrderFront(nil)
     }
 
@@ -756,36 +743,30 @@ struct OutsideClickPolicy {
 /// top-aligned with the row that was clicked. Pure so it can be tested without
 /// standing up windows.
 struct ActionPanelPlacement {
-    /// The list panel's frame, in screen coordinates, including its shadow slack.
+    /// The list panel's frame, in screen coordinates.
     let listFrame: NSRect
     /// The clicked row, in the list window's own coordinates.
     let rowRect: NSRect
-    /// The action panel's frame size, including its own shadow slack.
+    /// The action panel's frame size.
     let panelSize: NSSize
-    /// Shadow slack insets, equal on both panels.
-    let margin: CGFloat
     let visibleFrame: NSRect?
 
-    /// Gap between the two panels' *visible* edges. Each window's frame is
-    /// inflated by `margin` on every side, so the frames must overlap by
-    /// `2 * margin` minus this gap for the visible edges to nearly touch.
-    private static let gap: CGFloat = 4
+    /// Clear space between the two panels. Window frames equal their content,
+    /// so this is the real edge-to-edge distance on screen.
+    static let gap: CGFloat = 8
 
     func origin() -> NSPoint {
-        // Visible content of each window, in screen coordinates.
-        let listVisibleRight = listFrame.maxX - margin
-        let listVisibleLeft = listFrame.minX + margin
         let rowTop = listFrame.minY + rowRect.maxY
 
-        var x = listVisibleRight + Self.gap - margin
-        // The action window's content starts `margin` above its frame origin,
-        // so back that out to top-align the content with the clicked row.
-        var y = rowTop - panelSize.height + margin
+        // Sit fully to the right of the list, never overlapping it.
+        var x = listFrame.maxX + Self.gap
+        // Top-aligned with the row that was clicked.
+        var y = rowTop - panelSize.height
 
         if let visibleFrame {
-            if x + panelSize.width - margin > visibleFrame.maxX {
-                // No room to the right: sit to the left of the list instead.
-                x = listVisibleLeft - Self.gap - panelSize.width + margin
+            if x + panelSize.width > visibleFrame.maxX {
+                // No room to the right: sit fully to the left of the list.
+                x = listFrame.minX - Self.gap - panelSize.width
             }
             x = max(x, visibleFrame.minX)
             y = min(max(y, visibleFrame.minY), visibleFrame.maxY - panelSize.height)
